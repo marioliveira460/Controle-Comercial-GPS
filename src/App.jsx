@@ -77,9 +77,11 @@ const num = v => {
 };
 const pctFmt = v => {
   if (!v||v===""||v==="0") return "—";
-  const n = parseFloat(v);
+  // Use num() to handle "5,29%", "0.0529", "5.29" etc
+  const n = num(v);
   if (isNaN(n)||n===0) return "—";
-  const val = n>1?n:n*100;
+  // num() returns decimal form (0.0529), multiply by 100
+  const val = n > 1 ? n : n * 100;
   return `${val.toFixed(2)}%`;
 };
 const fmtData = d => {
