@@ -59,12 +59,19 @@ const brl = v => (!v&&v!==0)?"—"
 const num = v => {
   if (v==null||v==="") return 0;
   const s = String(v).trim();
-  // Currency: "R$ 1.234,56" -> strip R$, spaces, thousand dots, convert comma
-  // Decimal: "0.0756" -> keep as is
   const cleaned = s.replace(/R\$\s*/g,"").replace(/\s/g,"");
-  // If it has comma as decimal separator (Brazilian): "1.234,56"
-  if (/\d\.\d{3},/.test(cleaned) || /,\d{1,2}$/.test(cleaned)) {
+  // Percentage string: "5.29%" or "5,29%"
+  if (cleaned.endsWith("%")) {
+    const pctStr = cleaned.slice(0,-1).replace(",",".");
+    return parseFloat(pctStr) / 100 || 0;
+  }
+  // Brazilian currency "1.234,56" or "1.234" (thousand separator)
+  if (/\d\.\d{3},/.test(cleaned)) {
     return parseFloat(cleaned.replace(/\./g,"").replace(",",".")) || 0;
+  }
+  // Brazilian decimal with comma: "5,29"
+  if (/^-?\d+,\d+$/.test(cleaned)) {
+    return parseFloat(cleaned.replace(",",".")) || 0;
   }
   return parseFloat(cleaned) || 0;
 };
@@ -82,8 +89,24 @@ const fmtData = d => {
 const parseData = s => {
   if (!s) return null;
   const str = s.toString().trim();
-  if (!str||str==="-"||str==="NaT") return null;
-  const d = new Date(str); return isNaN(d.getTime())?null:d;
+  if (!str||str==="-"||str==="NaT"||str==="null") return null;
+  // ISO format: "2026-03-03"
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const d = new Date(str+"T00:00:00");
+    return isNaN(d.getTime())?null:d;
+  }
+  // Slash format: "03/03/2026" or "3/3/2026"
+  const parts = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (parts) {
+    const [_, a, b, year] = parts;
+    // Always treat as DD/MM/YYYY (Brazilian Google Sheets format)
+    const day = a.padStart(2,"0");
+    const mon = b.padStart(2,"0");
+    const d = new Date(`${year}-${mon}-${day}T00:00:00`);
+    return isNaN(d.getTime())?null:d;
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime())?null:d;
 };
 const diasEntre = (d1,d2) => {
   if (!d1||!d2) return null;
