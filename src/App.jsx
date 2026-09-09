@@ -209,6 +209,8 @@ const processGerencial = raw => {
       info:    getByIdx(r, idxInfo).toString().trim(),
       devido, aplicado, inicioNeg, dataAprov, diasNeg,
       concluido: !!dataAprov,
+      _colStatus: idxStatus, // column index for API write
+      _colTipo:   idxTipo,   // column index for API write
       _edited: false,
     };
   }).filter(Boolean);
@@ -413,8 +415,51 @@ function SecaoGerencial({ data, setData }) {
   const [busca,   setBusca]   = useState("");
   const [tooltip, setTooltip] = useState({visible:false,text:"",x:0,y:0});
 
-  const editRow = (id,field,value) =>
-    setData(prev=>prev.map(r=>r._id===id?{...r,[field]:value,_edited:true}:r));
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+
+  const editRow = async (id, field, value) => {
+    console.log("[editRow] called:", id, field, value);
+    // Update local state immediately
+    setData(prev => prev.map(r => r._id===id ? {...r,[field]:value,_edited:true} : r));
+
+    // Save to Google Sheets via API
+    setSaving(true); setSaveMsg(null);
+    try {
+      const currentRow = data.find(r => r._id === id);
+      console.log("[editRow] currentRow:", currentRow?._id, "sheetRow:", id+2);
+      if (!currentRow) { console.log("[editRow] no row found"); return; }
+
+      // _id is the 0-based index in the raw CSV (excluding header)
+      // Row in sheet = id + 2 (1 for header + 1 for 1-based)
+      const sheetRow = id + 2;
+
+      // Column names to look up in the sheet
+      const colNames = {
+        status: "Status Real",
+        tipo:   "Tipo de Negócio",
+      };
+      const colName = colNames[field];
+      if (!colName) return;
+
+      const res = await fetch("/api/update-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: [{ row: sheetRow, colName, value }]
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Erro ao salvar");
+      setSaveMsg({ ok: true, text: "✓ Salvo na planilha" });
+    } catch(e) {
+      console.error("Save error:", e);
+      setSaveMsg({ ok: false, text: `Erro: ${e.message}` });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setSaveMsg(null), 4000);
+    }
+  };
 
   const mesesDisp  = ORDEM_MES.filter(m=>data.some(r=>r.mes===m));
   const todosMeses = fMeses.size===0;
@@ -690,6 +735,15 @@ function SecaoGerencial({ data, setData }) {
         })}
       </div>
       {nEditados>0&&<ExportBtn n={nEditados} onExport={()=>exportExcel(data)}/>}
+      {/* Save status toast */}
+      {(saving||saveMsg)&&(
+        <div style={{position:"fixed",bottom:80,right:24,zIndex:400,
+          background:saving?"#1E293B":saveMsg?.ok?"#16A34A":"#DC2626",
+          color:"#fff",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:600,
+          boxShadow:"0 4px 12px rgba(0,0,0,.2)"}}>
+          {saving?"Salvando na planilha...":saveMsg?.text}
+        </div>
+      )}
     </div>
   );
 }
