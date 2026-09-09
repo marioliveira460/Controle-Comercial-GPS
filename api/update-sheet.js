@@ -11,11 +11,12 @@ export default async function handler(req, res) {
   try {
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     const { updates } = req.body;
+    // updates: [{ cr: "18847", colName: "Status Real", value: "Concluído" }]
     if (!updates?.length) return res.status(400).json({ error: "No updates" });
 
     const token = await getAccessToken(creds);
 
-    // Get sheet metadata to find column positions and sheet name
+    // Get sheet name from GID
     const metaRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties`,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -23,28 +24,43 @@ export default async function handler(req, res) {
     const meta = await metaRes.json();
     const sheet = meta.sheets?.find(s => String(s.properties.sheetId) === GID);
     const sheetName = sheet?.properties?.title;
-    if (!sheetName) throw new Error(`Sheet with GID ${GID} not found`);
+    if (!sheetName) throw new Error(`Sheet GID ${GID} not found`);
 
-    // Get header row to find column positions by name
-    const headerRes = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(sheetName)}!1:1`,
+    // Get ALL data to find row by CR value
+    const dataRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(sheetName)}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
-    const headerData = await headerRes.json();
-    const headers = headerData.values?.[0] || [];
+    const sheetData = await dataRes.json();
+    const rows = sheetData.values || [];
+    if (!rows.length) throw new Error("Sheet is empty");
 
-    // Build batch update
-    const data = updates.map(({ row, colName, value }) => {
+    const headers = rows[0];
+
+    // Build batch update — find each row by CR value
+    const data = [];
+    for (const { cr, colName, value } of updates) {
+      // Find column index for the target field
       const colIdx = headers.findIndex(h =>
         h.trim().toLowerCase() === colName.trim().toLowerCase()
       );
-      if (colIdx < 0) throw new Error(`Column "${colName}" not found in headers: ${headers.join(", ")}`);
+      if (colIdx < 0) throw new Error(`Column "${colName}" not found. Headers: ${headers.join(", ")}`);
+
+      // Find the CR column
+      const crColIdx = headers.findIndex(h => h.trim().toUpperCase() === "CR");
+      if (crColIdx < 0) throw new Error("CR column not found");
+
+      // Find the row with this CR
+      const rowIdx = rows.findIndex((row, i) => i > 0 && String(row[crColIdx]||"").trim() === String(cr).trim());
+      if (rowIdx < 0) throw new Error(`CR "${cr}" not found in sheet`);
+
+      const sheetRow = rowIdx + 1; // 1-based
       const colLetter = idxToCol(colIdx);
-      return {
-        range: `${sheetName}!${colLetter}${row}`,
+      data.push({
+        range: `${sheetName}!${colLetter}${sheetRow}`,
         values: [[value]],
-      };
-    });
+      });
+    }
 
     const updateRes = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchUpdate`,
@@ -57,7 +73,7 @@ export default async function handler(req, res) {
     const result = await updateRes.json();
     if (!updateRes.ok) throw new Error(result.error?.message || JSON.stringify(result));
 
-    res.status(200).json({ ok: true, updated: updates.length, sheetName });
+    res.status(200).json({ ok: true, updated: data.length, ranges: data.map(d => d.range) });
   } catch (err) {
     console.error("update-sheet error:", err.message);
     res.status(500).json({ error: err.message });
@@ -66,7 +82,7 @@ export default async function handler(req, res) {
 
 const idxToCol = n => {
   let s = ""; n++;
-  while (n > 0) { s = String.fromCharCode(64 + (n - 1) % 26 + 1) + s; n = Math.floor((n - 1) / 26); }
+  while (n > 0) { s = String.fromCharCode(64 + (n-1) % 26 + 1) + s; n = Math.floor((n-1)/26); }
   return s;
 };
 
@@ -80,7 +96,6 @@ async function getAccessToken(creds) {
   };
   const enc = s => btoa(JSON.stringify(s)).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
   const unsigned = `${enc({ alg:"RS256", typ:"JWT" })}.${enc(payload)}`;
-
   const pem = creds.private_key.replace(/-----.*?-----/g,"").replace(/\s/g,"");
   const keyBytes = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
   const key = await crypto.subtle.importKey(
@@ -90,7 +105,6 @@ async function getAccessToken(creds) {
   const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
     .replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
-
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
