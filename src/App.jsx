@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import * as XLSX from "xlsx";
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 const ORDEM_MES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho",
@@ -286,23 +285,7 @@ const clienteStatsP = (ativs) => {
   }).sort((a,b)=>b.rows.length-a.rows.length);
 };
 
-// ─── EXPORTAR ─────────────────────────────────────────────────────────────────
-const exportExcel = data => {
-  const rows = data.map(r=>({
-    "Grupo Cliente":r.grupo,"CR":r.cr,"Descrição CR":r.descr,
-    "Tipo de Negócio":r.tipo,"Mês Vigência":r.mes,
-    "Responsável Farmer":r.farmer,"Status Real":r.status,
-    "Devido":r.devido,"Aplicado":r.aplicado,
-    "Início Negociação":r.inicioNeg?fmtData(r.inicioNeg):"",
-    "Data Aprovação":r.dataAprov?fmtData(r.dataAprov):"",
-    "Dias Negociação":r.diasNeg??"",
-    "Informações":r.info,"Editado":r._edited?"Sim":"",
-  }));
-  const ws=XLSX.utils.json_to_sheet(rows);
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,"Gerencial");
-  XLSX.writeFile(wb,"Gerencial_Atualizado.xlsx");
-};
+
 
 // ─── INLINE SELECT ────────────────────────────────────────────────────────────
 const InlineSelect = ({ value, options, colorMap, onChange }) => {
@@ -357,43 +340,7 @@ const InlineSelect = ({ value, options, colorMap, onChange }) => {
   );
 };
 
-// ─── EXPORT BTN ───────────────────────────────────────────────────────────────
-const ExportBtn = ({ n, onExport }) => {
-  const [open,setOpen]=useState(false);
-  return (
-    <div style={{position:"fixed",bottom:24,right:24,zIndex:300,
-                 display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-      {open&&(
-        <div style={{background:"#fff",borderRadius:12,padding:"14px 18px",
-                     boxShadow:"0 8px 24px rgba(0,0,0,.18)",border:"1px solid #E2E8F0",
-                     display:"flex",flexDirection:"column",gap:10,minWidth:200}}>
-          <div style={{fontSize:12,color:"#64748B"}}>
-            <span style={{fontWeight:700,color:"#F59E0B"}}>{n}</span> alteraç{n===1?"ão":"ões"}
-          </div>
-          <button onClick={onExport} style={{padding:"9px 16px",borderRadius:8,background:"#16A34A",
-            border:"none",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            ⬇ Exportar Excel
-          </button>
-          <button onClick={()=>setOpen(false)} style={{padding:"6px",borderRadius:8,
-            background:"#F1F5F9",border:"none",color:"#64748B",fontSize:12,cursor:"pointer"}}>
-            Minimizar
-          </button>
-        </div>
-      )}
-      <button onClick={()=>setOpen(o=>!o)}
-        style={{width:44,height:44,borderRadius:99,background:open?"#64748B":"#16A34A",
-                border:"none",color:"#fff",fontSize:18,cursor:"pointer",
-                boxShadow:"0 4px 16px rgba(0,0,0,.25)",display:"flex",
-                alignItems:"center",justifyContent:"center",position:"relative"}}>
-        {open?"✕":"⬇"}
-        {!open&&<span style={{position:"absolute",top:-4,right:-4,background:"#F59E0B",
-                               color:"#fff",fontSize:10,fontWeight:700,minWidth:16,height:16,
-                               borderRadius:99,display:"flex",alignItems:"center",
-                               justifyContent:"center",padding:"0 3px",border:"2px solid #fff"}}>{n}</span>}
-      </button>
-    </div>
-  );
-};
+
 
 // ─── PILL ─────────────────────────────────────────────────────────────────────
 const Pill = ({ label, active, onClick, color }) => (
@@ -493,7 +440,6 @@ function SecaoGerencial({ data, setData }) {
     return Object.entries(by).map(([g,crs])=>({g,crs})).sort((a,b)=>(a.g||"").localeCompare(b.g||""));
   })();
 
-  const nEditados = data.filter(r=>r._edited).length;
   const showTip=(e,t)=>{if(t)setTooltip({visible:true,text:t,x:e.clientX,y:e.clientY});};
   const moveTip=e=>{if(tooltip.visible)setTooltip(p=>({...p,x:e.clientX,y:e.clientY}));};
   const hideTip=()=>setTooltip(p=>({...p,visible:false}));
@@ -728,7 +674,7 @@ function SecaoGerencial({ data, setData }) {
           );
         })}
       </div>
-      {nEditados>0&&<ExportBtn n={nEditados} onExport={()=>exportExcel(data)}/>}
+
       {/* Save status toast */}
       {(saving||saveMsg)&&(
         <div style={{position:"fixed",bottom:80,right:24,zIndex:400,
