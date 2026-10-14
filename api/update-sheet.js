@@ -1,97 +1,116 @@
-const { google } = require("googleapis");
-
-const SPREADSHEET_ID = "1Mw46A8j0c5-6VyOY8K7bEFPTnEGLh6nG-lL5jEXe2G0";
-const SHEET_NAME = "Gerencial";
-
-// Mapeamento de campo → nome da coluna na planilha
-const CAMPO_COLUNA = {
-  "Tipo de Negócio": "Tipo de Negócio",
-  "Status Real": "Status Real",
-  "Devido (%)": "Devido (%)",
-  "Aplicado (%)": "Aplicado (%)",
-  "Valor Contrato Atual": "Valor Contrato Atual",
-  "Valor Final/Pleito": "Valor Final/Pleito",
-};
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { cr, campo, valor } = req.body || {};
-  if (!cr || !campo) return res.status(400).json({ error: "cr e campo são obrigatórios" });
-
-  const colunaAlvo = CAMPO_COLUNA[campo];
-  if (!colunaAlvo) return res.status(400).json({ error: `Campo inválido: ${campo}` });
+  const SHEET_ID = "1Mw46A8j0c5-6VyOY8K7bEFPTnEGLh6nG-lL5jEXe2G0";
+  const GID      = "2073814116";
 
   try {
-    const credRaw = process.env.GOOGLE_SERVICE_ACCOUNT;
-    if (!credRaw) throw new Error("GOOGLE_SERVICE_ACCOUNT não configurado");
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+    const { updates } = req.body;
+    // updates: [{ cr: "18847", colName: "Status Real", value: "Concluído" }]
+    if (!updates?.length) return res.status(400).json({ error: "No updates" });
 
-    const cred = JSON.parse(credRaw);
-    const auth = new google.auth.GoogleAuth({
-      credentials: cred,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
+    const token = await getAccessToken(creds);
 
-    const sheets = google.sheets({ version: "v4", auth });
+    // Get sheet name from GID
+    const metaRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const meta = await metaRes.json();
+    const sheet = meta.sheets?.find(s => String(s.properties.sheetId) === GID);
+    const sheetName = sheet?.properties?.title;
+    if (!sheetName) throw new Error(`Sheet GID ${GID} not found`);
 
-    // Lê a aba inteira
-    const readResp = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}`,
-    });
+    // Get ALL data to find row by CR value
+    const dataRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(sheetName)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const sheetData = await dataRes.json();
+    const rows = sheetData.values || [];
+    if (!rows.length) throw new Error("Sheet is empty");
 
-    const rows = readResp.data.values;
-    if (!rows || rows.length < 2) throw new Error("Planilha vazia ou sem dados");
+    const headers = rows[0];
 
-    const header = rows[0];
-    const colCR = header.findIndex(h => h?.toString().trim().toLowerCase() === "cr");
-    const colAlvo = header.findIndex(h => h?.toString().trim() === colunaAlvo);
+    // Build batch update — find each row by CR value
+    const data = [];
+    for (const { cr, colName, value } of updates) {
+      // Find column index for the target field
+      const colIdx = headers.findIndex(h =>
+        h.trim().toLowerCase() === colName.trim().toLowerCase()
+      );
+      if (colIdx < 0) throw new Error(`Column "${colName}" not found. Headers: ${headers.join(", ")}`);
 
-    if (colCR === -1) throw new Error("Coluna CR não encontrada");
-    if (colAlvo === -1) throw new Error(`Coluna "${colunaAlvo}" não encontrada`);
+      // Find the CR column
+      const crColIdx = headers.findIndex(h => h.trim().toUpperCase() === "CR");
+      if (crColIdx < 0) throw new Error("CR column not found");
 
-    // Encontra a linha pelo CR
-    let rowIdx = -1;
-    for (let i = 1; i < rows.length; i++) {
-      const cellCR = String(rows[i][colCR] || "").trim();
-      if (cellCR === String(cr).trim()) {
-        rowIdx = i;
-        break;
-      }
+      // Find the row with this CR
+      const rowIdx = rows.findIndex((row, i) => i > 0 && String(row[crColIdx]||"").trim() === String(cr).trim());
+      if (rowIdx < 0) throw new Error(`CR "${cr}" not found in sheet`);
+
+      const sheetRow = rowIdx + 1; // 1-based
+      const colLetter = idxToCol(colIdx);
+      data.push({
+        range: `${sheetName}!${colLetter}${sheetRow}`,
+        values: [[value]],
+      });
     }
 
-    if (rowIdx === -1) throw new Error(`CR ${cr} não encontrado na planilha`);
+    const updateRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchUpdate`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
+      }
+    );
+    const result = await updateRes.json();
+    if (!updateRes.ok) throw new Error(result.error?.message || JSON.stringify(result));
 
-    // Converte para letra de coluna A1 notation
-    const colLetra = columnToLetter(colAlvo);
-    const linhaSheet = rowIdx + 1; // 1-based
-    const range = `${SHEET_NAME}!${colLetra}${linhaSheet}`;
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [[valor]] },
-    });
-
-    return res.status(200).json({ ok: true, range, valor });
-  } catch (e) {
-    console.error("update-sheet error:", e.message);
-    return res.status(500).json({ error: e.message });
+    res.status(200).json({ ok: true, updated: data.length, ranges: data.map(d => d.range) });
+  } catch (err) {
+    console.error("update-sheet error:", err.message);
+    res.status(500).json({ error: err.message });
   }
+}
+
+const idxToCol = n => {
+  let s = ""; n++;
+  while (n > 0) { s = String.fromCharCode(64 + (n-1) % 26 + 1) + s; n = Math.floor((n-1)/26); }
+  return s;
 };
 
-function columnToLetter(col) {
-  let letter = "";
-  let c = col;
-  while (c >= 0) {
-    letter = String.fromCharCode((c % 26) + 65) + letter;
-    c = Math.floor(c / 26) - 1;
-  }
-  return letter;
+async function getAccessToken(creds) {
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: creds.client_email,
+    scope: "https://www.googleapis.com/auth/spreadsheets",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now, exp: now + 3600,
+  };
+  const enc = s => btoa(JSON.stringify(s)).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
+  const unsigned = `${enc({ alg:"RS256", typ:"JWT" })}.${enc(payload)}`;
+  const pem = creds.private_key.replace(/-----.*?-----/g,"").replace(/\s/g,"");
+  const keyBytes = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey(
+    "pkcs8", keyBytes.buffer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${unsigned}.${sigB64}`,
+  });
+  const td = await tokenRes.json();
+  if (!td.access_token) throw new Error("Token error: " + JSON.stringify(td));
+  return td.access_token;
 }
