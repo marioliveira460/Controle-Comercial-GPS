@@ -1,1264 +1,1213 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
-// ─── CONSTANTES ───────────────────────────────────────────────────────────────
-const ORDEM_MES = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho",
-                   "Agosto","Setembro","Outubro","Novembro","Dezembro"];
+// ─── Constantes ──────────────────────────────────────────────────────────────
+const GID_GERENCIAL = "2073814116";
+const SHEET_API = "/api/sheet";
+const UPDATE_API = "/api/update-sheet";
 
-const STATUS_G  = ["Concluído","Pendente Cliente","Pendente GPS","N/A","Negócio Perdido",
-                   "Em Negociação","Em Negociação Antecipada","Aguardando Reajuste"];
-const STATUS_COR = {
-  "Concluído":               { dot:"#16A34A", text:"#15803D", bg:"#DCFCE7" },
-  "Pendente Cliente":        { dot:"#D97706", text:"#B45309", bg:"#FEF9C3" },
-  "Pendente GPS":            { dot:"#2563EB", text:"#1D4ED8", bg:"#DBEAFE" },
-  "N/A":                     { dot:"#9CA3AF", text:"#6B7280", bg:"#F3F4F6" },
-  "Negócio Perdido":         { dot:"#DC2626", text:"#B91C1C", bg:"#FEE2E2" },
-  "Em Negociação":           { dot:"#D97706", text:"#B45309", bg:"#FEF9C3" },
-  "Em Negociação Antecipada":{ dot:"#7C3AED", text:"#6D28D9", bg:"#F5F3FF" },
-  "Aguardando Reajuste":     { dot:"#9CA3AF", text:"#6B7280", bg:"#F3F4F6" },
+const TIPO_OPTS = ["Reajuste", "DT", "Renovação", "Negócio Perdido", "Upselling", "Alteração de Escopo"];
+const STATUS_OPTS = ["Em Negociação", "Em Negociação Antecipada", "Aguardando Reajuste", "Concluído", "Negócio Perdido", "Aprovado", "Pendente Cliente", "Pendente GPS"];
+
+const C = {
+  azul:        "#006080",
+  azulMedio:   "#007fa3",
+  azulClaro:   "#e6f4f8",
+  cinzaEscuro: "#2d3748",
+  cinzaMedio:  "#4a5568",
+  cinzaClaro:  "#718096",
+  borda:       "#d1dde3",
+  bg:          "#ffffff",
+  bgCard:      "#ffffff",
+  verde:       "#0a8a5c",
+  verdeClaro:  "#e6f7f1",
+  vermelho:    "#c0392b",
+  vermelhoClaro:"#fdf0ee",
+  laranja:     "#c96b00",
+  laranjaClaro:"#fef3e2",
+  roxo:        "#6c3fb5",
+  roxoClaro:   "#f0ebfb",
 };
-const TIPO_G = ["Reajuste","DT","Renovação","Negócio Perdido"];
 
-const DARK  = "#1a2332";
-const DARK2 = "#243044";
-const MENU_BG = "#0F1F35";
+const SERIF = "'Georgia', 'Times New Roman', serif";
 
-// Equipe e cores (usadas em Gerencial e Produtividade)
-const EQUIPE   = ["Mariana","Wilder","Giovanni","Carla","Darlan"];
-const COR_P    = { Mariana:"#7C3AED",Wilder:"#0369A1",Giovanni:"#059669",Carla:"#D97706",Darlan:"#DC2626" };
-const SIN_COR  = { Verde:"#16A34A",Amarelo:"#D97706",Vermelho:"#DC2626" };
-const SIN_BG   = { Verde:"#DCFCE7",Amarelo:"#FEF9C3",Vermelho:"#FEE2E2" };
-const TIPO_P   = ["Reajuste","Renovação","Up Selling","Defesa de Território","Alteração de Escopo","BID/Cotação","Outros"];
-const TIPO_COR_P = { "Reajuste":"#7C3AED","Renovação":"#0891B2","Up Selling":"#059669","Defesa de Território":"#D97706","Alteração de Escopo":"#0369A1","BID/Cotação":"#DC2626","Outros":"#6B7280" };
-const MENU_W_OPEN  = 220;
-const MENU_W_CLOSE = 48;
+const TIPO_COR = {
+  "Reajuste":            C.azul,
+  "DT":                  C.roxo,
+  "Renovação":           C.verde,
+  "Negócio Perdido":     C.vermelho,
+  "Upselling":           C.laranja,
+  "Alteração de Escopo": C.azulMedio,
+};
+const TIPO_BG = {
+  "Reajuste":            C.azulClaro,
+  "DT":                  C.roxoClaro,
+  "Renovação":           C.verdeClaro,
+  "Negócio Perdido":     C.vermelhoClaro,
+  "Upselling":           C.laranjaClaro,
+  "Alteração de Escopo": C.azulClaro,
+};
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-const matchPessoa = s => EQUIPE.find(p => (s||"").toUpperCase().includes(p.toUpperCase())) || null;
+const STATUS_COR = {
+  "Concluído":                { color: C.verde,    bg: C.verdeClaro },
+  "Aprovado":                 { color: C.verde,    bg: C.verdeClaro },
+  "Pendente Cliente":         { color: C.laranja,  bg: C.laranjaClaro },
+  "Pendente GPS":             { color: C.azul,     bg: C.azulClaro },
+  "Negócio Perdido":          { color: C.vermelho, bg: C.vermelhoClaro },
+  "Em Negociação":            { color: C.azulMedio,bg: C.azulClaro },
+  "Em Negociação Antecipada": { color: C.roxo,     bg: C.roxoClaro },
+  "Aguardando Reajuste":      { color: C.laranja,  bg: C.laranjaClaro },
+};
 
-const matchSin = v => {
-  const s = (v||"").toString().toUpperCase();
-  if (s.includes("VERDE"))   return "verde";
-  if (s.includes("AMARELO")) return "amarelo";
-  if (s.includes("VERM"))    return "vermelho";
+// ─── Utilitários ─────────────────────────────────────────────────────────────
+const num = (v) => {
+  if (v === null || v === undefined || v === "") return 0;
+  if (typeof v === "number") return v;
+  const s = String(v).trim().replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+  const clean = s.replace(/%$/, "");
+  const n = parseFloat(clean);
+  if (isNaN(n)) return 0;
+  if (s.endsWith("%")) return n / 100;
+  return n;
+};
+
+const pctFmt = (v) => {
+  const n2 = num(v);
+  if (!n2 && n2 !== 0) return "—";
+  const pct = Math.abs(n2) <= 1 ? n2 * 100 : n2;
+  return `${pct.toFixed(2).replace(".", ",")}%`;
+};
+
+const brlFmt = (v) => {
+  const n2 = num(v);
+  if (!n2) return "—";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(n2);
+};
+
+const parseData = (s) => {
+  if (!s && s !== 0) return null;
+  if (typeof s === "number") {
+    const d = new Date(Math.round((s - 25569) * 86400 * 1000));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  const str = String(s).trim();
+  const m1 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m1) return new Date(+m1[3], +m1[2] - 1, +m1[1]);
+  const m2 = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m2) return new Date(+m2[1], +m2[2] - 1, +m2[3]);
   return null;
 };
 
-const matchCatP = (ativ, tipo) => {
-  const c = ((ativ||"")+" "+(tipo||"")).toUpperCase();
-  if (c.includes("REAJUSTE")||c.includes("NOTIFICAÇ")||c.includes("CARTA DE REAJUSTE")) return "Reajuste";
-  if (c.includes("RENOVAÇ")) return "Renovação";
-  if (c.includes("UP-SELLING")||c.includes("UP SELLING")||c.includes("AUMENTO DE ESCOPO")) return "Up Selling";
-  if (c.includes("DEFESA DE TERRIT")) return "Defesa de Território";
-  if ((c.includes("ALTERAÇ")&&c.includes("ESCOPO"))||c.includes("REVISÃO DE ESCOPO")||c.includes("ADITIVO CONTRATUAL")) return "Alteração de Escopo";
-  if (c.includes("BID")||c.includes("COTAÇ")) return "BID/Cotação";
-  return "Outros";
+const diasEntre = (a, b) => {
+  if (!a || !b) return null;
+  return Math.round((b - a) / (1000 * 60 * 60 * 24));
 };
-const brl = v => (!v&&v!==0)?"—"
-  : new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0}).format(v);
-const num = v => {
-  if (v==null||v==="") return 0;
-  const s = String(v).trim();
-  const cleaned = s.replace(/R\$\s*/g,"").replace(/\s/g,"");
-  // Percentage string: "5.29%" or "5,29%"
-  if (cleaned.endsWith("%")) {
-    const pctStr = cleaned.slice(0,-1).replace(",",".");
-    return parseFloat(pctStr) / 100 || 0;
-  }
-  // Brazilian currency "1.234,56" or "1.234" (thousand separator)
-  if (/\d\.\d{3},/.test(cleaned)) {
-    return parseFloat(cleaned.replace(/\./g,"").replace(",",".")) || 0;
-  }
-  // Brazilian decimal with comma: "5,29"
-  if (/^-?\d+,\d+$/.test(cleaned)) {
-    return parseFloat(cleaned.replace(",",".")) || 0;
-  }
-  return parseFloat(cleaned) || 0;
-};
-const pctFmt = v => {
-  if (!v||v===""||v==="0") return "—";
-  // Use num() to handle "5,29%", "0.0529", "5.29" etc
-  const n = num(v);
-  if (isNaN(n)||n===0) return "—";
-  // num() returns decimal form (0.0529), multiply by 100
-  const val = n > 1 ? n : n * 100;
-  return `${val.toFixed(2)}%`;
-};
-const fmtData = d => {
-  if (!d) return "—";
-  return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
-};
-const parseData = s => {
-  if (!s) return null;
-  const str = s.toString().trim();
-  if (!str||str==="-"||str==="NaT"||str==="null") return null;
-  // ISO format: "2026-03-03"
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
-    const d = new Date(str+"T00:00:00");
-    return isNaN(d.getTime())?null:d;
-  }
-  // Slash format: "03/03/2026" or "3/3/2026"
-  const parts = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (parts) {
-    const [_, a, b, year] = parts;
-    // Always treat as DD/MM/YYYY (Brazilian Google Sheets format)
-    const day = a.padStart(2,"0");
-    const mon = b.padStart(2,"0");
-    const d = new Date(`${year}-${mon}-${day}T00:00:00`);
-    return isNaN(d.getTime())?null:d;
-  }
-  const d = new Date(str);
-  return isNaN(d.getTime())?null:d;
-};
-const diasEntre = (d1,d2) => {
-  if (!d1||!d2) return null;
-  return Math.round(Math.abs(d2-d1)/(1000*60*60*24));
-};
-const MESES_MAP = {
-  "janeiro":1,"fevereiro":2,"março":3,"abril":4,"maio":5,"junho":6,
-  "julho":7,"agosto":8,"setembro":9,"outubro":10,"novembro":11,"dezembro":12,
-  "jan":1,"fev":2,"mar":3,"abr":4,"mai":5,"jun":6,
-  "jul":7,"ago":8,"set":9,"out":10,"nov":11,"dez":12,
-};
-const parseMesNum = s => {
-  if (!s) return null;
-  return MESES_MAP[s.toString().toLowerCase().replace(/\.$/,"").trim()] || null;
-};
-const isPessoa = s => EQUIPE.some(p => s.toUpperCase().includes(p.toUpperCase()));
 
-// ─── FETCH ────────────────────────────────────────────────────────────────────
-const fetchCSV = async gid => {
-  const res = await fetch(`/api/sheet?gid=${gid}`);
-  if (!res.ok) throw new Error(`Erro HTTP ${res.status}`);
-  const text = await res.text();
-  if (!text||text.length<10) throw new Error("Planilha vazia");
-  const parseCSVLine = line => {
-    const result=[]; let cur="",inQ=false;
-    for (let i=0;i<line.length;i++) {
-      const ch=line[i];
-      if (ch==='"'&&line[i+1]==='"') { cur+='"';i++; }
-      else if (ch==='"') { inQ=!inQ; }
-      else if (ch===','&&!inQ) { result.push(cur.trim());cur=""; }
-      else { cur+=ch; }
+const mesOrd = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const mesNum = (m) => {
+  const i = mesOrd.findIndex(x => x.toLowerCase() === (m||"").toLowerCase());
+  return i >= 0 ? i : 99;
+};
+
+const statusTemporal = (row) => {
+  const hoje = new Date();
+  const mesIdx = mesOrd.findIndex(x => x.toLowerCase() === (row.mes || "").toLowerCase());
+  const anoAtual = hoje.getFullYear();
+  const dataVig = mesIdx >= 0 ? new Date(anoAtual, mesIdx, 1) : null;
+  const inicio = parseData(row.inicioNeg);
+  const aprovacao = parseData(row.dataAprov);
+  if (aprovacao) return null;
+  if (inicio && dataVig && dataVig > hoje) return "Em Negociação Antecipada";
+  if (inicio) return "Em Negociação";
+  if (dataVig && dataVig > hoje) return "Aguardando Reajuste";
+  return null;
+};
+
+// ─── Fetch ───────────────────────────────────────────────────────────────────
+const fetchSheet = async (gid) => {
+  const r = await fetch(`${SHEET_API}?gid=${gid}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const json = await r.json();
+  return json.values || [];
+};
+
+const parseGerencial = (values) => {
+  if (!values || values.length < 2) return [];
+  const [header, ...rows] = values;
+  const idx = (name) => header.findIndex(h => h?.toString().trim().toLowerCase() === name.toLowerCase());
+  const iMes = idx("Mês Vigência");
+  const iGrupo = idx("Grupo Cliente");
+  const iCR = idx("CR");
+  const iDescri = idx("Descri CR");
+  const iGerente = idx("Gerente Regional");
+  const iStatus = idx("Status Real");
+  const iTipo = idx("Tipo de Negócio");
+  const iDevido = idx("Devido (%)");
+  const iAplic = idx("Aplicado (%)");
+  const iValorAtual = idx("Valor Contrato Atual");
+  const iValorFinal = idx("Valor Final/Pleito");
+  const iInicio = idx("Inicio Negociação");
+  const iAprov = idx("Data de Aprovação");
+  const iInfo = idx("Informações");
+  const iObs = idx("Observações");
+  const iIndice = idx("Índice Contratual");
+  const iDataBase = idx("Data Base CCT");
+  const iProdut = idx("Cláusula de Produtividade");
+  const iSind = idx("Sindicato");
+
+  return rows.filter(r => r && r[iCR]).map((r, i) => ({
+    _idx: i + 1,
+    mes: r[iMes] || "",
+    mesVigencia: r[iMes] || "",
+    grupoCliente: r[iGrupo] || "",
+    cr: String(r[iCR] || "").trim(),
+    descri: r[iDescri] || "",
+    descricaoCR: r[iDescri] || "",
+    gerente: r[iGerente] || "",
+    status: r[iStatus] || "",
+    tipo: r[iTipo] || "",
+    devido: r[iDevido] ?? "",
+    aplicado: r[iAplic] ?? "",
+    valorAtual: r[iValorAtual] ?? "",
+    valorFinal: r[iValorFinal] ?? "",
+    inicioNeg: r[iInicio] ?? "",
+    dataAprov: r[iAprov] ?? "",
+    info: r[iInfo] || "",
+    obs: r[iObs] || "",
+    indiceContratual: r[iIndice] || "",
+    dataBaseCCT: r[iDataBase] || "",
+    clausulaProdutividade: r[iProdut] ?? "",
+    sindicato: r[iSind] || "",
+    vencimentoContrato: r[idx("Vencimento do Contrato")] || "",
+  }));
+};
+
+// ─── Logo ─────────────────────────────────────────────────────────────────────
+const LogoInHaus = () => (
+  <div style={{ textAlign: "center", lineHeight: 1 }}>
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center" }}>
+      <span style={{ fontWeight: 700, fontSize: 20, color: C.cinzaEscuro, letterSpacing: "-0.5px", fontFamily: "'Segoe UI', Arial, sans-serif" }}>In</span>
+      <span style={{ fontWeight: 700, fontSize: 20, color: C.azul, letterSpacing: "-0.5px", fontFamily: "'Segoe UI', Arial, sans-serif" }}>·Haus</span>
+    </div>
+    <div style={{ fontSize: 9, color: C.cinzaClaro, letterSpacing: "0.22em", marginTop: 2, fontFamily: "'Segoe UI', Arial, sans-serif" }}>
+      logística
+    </div>
+  </div>
+);
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
+const Toast = ({ msg, onClose }) => {
+  useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, [onClose]);
+  return (
+    <div style={{
+      position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+      background: C.verde, color: "#fff", padding: "10px 20px",
+      borderRadius: 8, fontWeight: 600, fontSize: 13,
+      boxShadow: "0 4px 20px rgba(0,0,0,0.15)"
+    }}>✓ {msg}</div>
+  );
+};
+
+// ─── Badge ───────────────────────────────────────────────────────────────────
+const Badge = ({ label, color, bg }) => (
+  <span style={{
+    display: "inline-block", padding: "2px 8px", borderRadius: 4,
+    background: bg || (color + "18"), color: color || C.azul,
+    fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
+    border: `1px solid ${color || C.azul}30`
+  }}>{label}</span>
+);
+
+// ─── Edição inline ───────────────────────────────────────────────────────────
+const EditableCell = ({ value, opts, onSave, type = "select" }) => {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    await onSave(val);
+    setSaving(false);
+    setEditing(false);
+  };
+
+  if (editing) {
+    if (type === "select") {
+      return (
+        <select value={val} onChange={e => setVal(e.target.value)} onBlur={save} autoFocus
+          style={{ fontSize: 12, padding: "3px 6px", borderRadius: 4, border: `1.5px solid ${C.azul}`, background: "#fff", color: C.cinzaEscuro, outline: "none" }}>
+          {opts.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      );
     }
-    result.push(cur.trim()); return result;
-  };
-  const lines = text.split("\n").filter(l=>l.trim());
-  const headers = parseCSVLine(lines[0]);
-  return lines.slice(1).map(line => {
-    const vals=parseCSVLine(line); const obj={};
-    headers.forEach((h,i)=>{ obj[h]=(vals[i]??"").replace(/^"|"$/g,"").trim(); });
-    return obj;
-  }).filter(r=>Object.values(r).some(v=>v));
-};
-
-// ─── PROCESSA GERENCIAL ───────────────────────────────────────────────────────
-const processGerencial = raw => {
-  if (!raw.length) return [];
-  // Usa índice fixo baseado na ordem das colunas da planilha:
-  // 0:Mês Vigência, 1:Grupo Cliente, 2:CR, 3:DESCRI CR, 4:Responsável Farmer,
-  // 5:Status Real, 6:Tipo de Negócio, 7:Devido, 8:Aplicado,
-  // 9:Inicio Negociação, 10:Data de Aprovação, 11:Informações
-  const headers = Object.keys(raw[0]);
-  const idx = kws => {
-    const i = headers.findIndex(h => kws.some(kw => h.toUpperCase().trim() === kw.toUpperCase().trim()));
-    return i >= 0 ? i : null;
-  };
-  const idxMes    = idx(["Mês Vigência","MES VIGENCIA"]);
-  const idxGrupo  = idx(["Grupo Cliente","GRUPO CLIENTE"]);
-  const idxCR     = idx(["CR"]);
-  const idxDescr  = idx(["DESCRI CR","DESCRICAO CR","DESCRI"]);
-  const idxFarmer = idx(["Responsável Farmer","RESPONSAVEL FARMER"]);
-  const idxStatus = idx(["Status Real","STATUS REAL"]);
-  const idxTipo   = idx(["Tipo de Negócio","TIPO DE NEGOCIO"]);
-  const idxDevido = idx(["Devido","DEVIDO"]);
-  const idxAplic  = idx(["Aplicado","APLICADO"]);
-  const idxInicio = idx(["Inicio Negociação","Início Negociação","INICIO NEGOCIACAO"]);
-  const idxAprov  = idx(["Data de Aprovação","DATA DE APROVACAO"]);
-  const idxInfo   = idx(["Informações","INFORMACOES"]);
-
-  const getByIdx = (r, i) => i !== null ? (Object.values(r)[i] ?? "") : "";
-
-  return raw.map((r, i) => {
-    const grupo  = getByIdx(r, idxGrupo).toString().trim();
-    const cr     = getByIdx(r, idxCR).toString().trim();
-    // Ignora linhas sem grupo válido ou CR inválido
-    if (!grupo || grupo.length > 60) return null;
-    if (!cr || cr.length > 15 || !/^\d/.test(cr.trim())) return null;
-    const statusReal = getByIdx(r, idxStatus).toString().trim() || "N/A";
-    const mesVig     = getByIdx(r, idxMes).toString().trim();
-    const inicioNeg  = parseData(getByIdx(r, idxInicio));
-    const dataAprov  = parseData(getByIdx(r, idxAprov));
-    const devido     = getByIdx(r, idxDevido).toString().trim();
-    const aplicado   = getByIdx(r, idxAplic).toString().trim();
-    const mesNum     = parseMesNum(mesVig);
-    const mesAtual   = new Date().getMonth() + 1;
-    let status = statusReal;
-    if (!dataAprov && inicioNeg && mesNum && mesNum > mesAtual) status = "Em Negociação Antecipada";
-    else if (!dataAprov && inicioNeg) status = "Em Negociação";
-    else if (!dataAprov && !inicioNeg && mesNum && mesNum > mesAtual) status = "Aguardando Reajuste";
-    const diasNeg = dataAprov
-      ? diasEntre(inicioNeg, dataAprov)
-      : (inicioNeg ? diasEntre(inicioNeg, new Date()) : null);
-    return {
-      _id: i, grupo, cr,
-      descr:   getByIdx(r, idxDescr).toString().trim(),
-      tipo:    getByIdx(r, idxTipo).toString().trim() || "Reajuste",
-      status, statusReal, mes: mesVig,
-      farmer:  getByIdx(r, idxFarmer).toString().trim(),
-      info:    getByIdx(r, idxInfo).toString().trim(),
-      devido, aplicado, inicioNeg, dataAprov, diasNeg,
-      concluido: !!dataAprov,
-      _colStatus: idxStatus, // column index for API write
-      _colTipo:   idxTipo,   // column index for API write
-      _edited: false,
-    };
-  }).filter(Boolean);
-};
-
-const processProd = raw => {
-  if(!raw||!raw.length) return [];
-  const keys=Object.keys(raw[0]);
-  const col=(...kws)=>keys.find(k=>kws.some(kw=>k.toUpperCase().replace(/\s+/g," ").trim().includes(kw.toUpperCase())))||null;
-  const val=(r,...kws)=>{const k=col(...kws);return k?r[k]:"";};
-  return raw.map(r=>{
-    const ativ=(val(r,"ATIVIDADE1")||val(r,"ATIVIDADE")||"").toString().trim().toUpperCase();
-    const tipo=(val(r,"TIPO DE PROPOSTA")||"").toString().trim().toUpperCase();
-    const obs=(val(r,"OBS")||"").toString().trim();
-    const cValAtual=col("VALOR CONTRATO ATUAL");
-    const valAtual=cValAtual?numP(r[cValAtual]):0;
-    const cValPleito=col("REAJUSTE + PLEITO","COM REAJUSTE + PLEITO");
-    const cValReaj=col("VALOR CONTRATO COM REAJUSTE");
-    const valPleito=(cValPleito?numP(r[cValPleito]):0)||(cValReaj?numP(r[cValReaj]):0);
-    const row={
-      isRevisao:(val(r,"REVISÃO","REVISAO")||"").toString().toUpperCase().includes("REVIS"),
-      nProposta:(val(r,"Nº PROPOSTA","N PROPOSTA","PROPOSTA")||"").toString().trim(),
-      grupoCliente:(val(r,"GRUPO CLIENTE")||"").toString().trim(),
-      cliente:(val(r,"CLIENTE")||"").toString().trim(),
-      respFarmer:(val(r,"RESP. FARMER","RESPONSÁVEL FARMER")||"").toString().trim(),
-      respHunter:(val(r,"RESP. HUNTER","RESPONSÁVEL HUNTER")||"").toString().trim(),
-      atividade:ativ,tipoProposta:tipo,obs,
-      valAtual,valPleito,diferenca:valPleito-valAtual,
-      pctReaj:   numP(val(r,"REAJUSTE CONTRATUAL (%)")),
-      pctPleito: numP(val(r,"PLEITO (%)")),
-      aprovR:    numP(val(r,"APROVADO PELO CLIENTE (R$)")),
-      aprovPct:  numP(val(r,"APROVADO PELO CLIENTE (%)")),
-      status:(val(r,"STATUS")||"").toString().trim(),
-      mes:(val(r,"Mês","MES")||"").toString().trim(),
-      semana:(val(r,"Semana","SEMANA")||"").toString().trim(),
-      escopo:(val(r,"Escopo Atuação","ESCOPO")||"").toString().trim(),
-      sinalizacao:matchSinP(val(r,"Sinalização","SINALIZACAO","SINALIZ")||""),
-      fezPec:val(r,"FEZ PEC"),fezAbertura:val(r,"FEZ ABERTURA"),
-      fezProposta:val(r,"FEZ PROPOSTA COMERCIAL"),fezCarta:val(r,"FEZ CARTA DE REAJUSTE"),
-      fezNotif:val(r,"FEZ CARTA DE NOTIF","FEZ NOTIF"),
-    };
-    row.responsavel=matchPessoaP(row.respFarmer,row.respHunter);
-    row.categoria=matchCatP(ativ,tipo);
-    row.entregaveis=matchEntP(row);
-    return row;
-  }).filter(r=>r.responsavel);
-};
-
-const contarEntP = rows => {
-  const c={};let t=0;
-  for(const r of rows) for(const e of r.entregaveis){c[e]=(c[e]||0)+1;t++;}
-  return Object.entries(c).map(([cat,qtd])=>({cat,qtd,p:t?Math.round(qtd/t*100):0})).sort((a,b)=>b.qtd-a.qtd);
-};
-
-const clienteStatsP = (ativs) => {
-  const by={};
-  for(const r of ativs){
-    const g=r.grupoCliente||r.cliente;
-    if(!by[g]) by[g]={rows:[],sin:null};
-    by[g].rows.push(r);
-    if(!by[g].sin&&r.sinalizacao) by[g].sin=r.sinalizacao;
+    return (
+      <input type="text" value={val} onChange={e => setVal(e.target.value)} onBlur={save} onKeyDown={e => e.key === "Enter" && save()} autoFocus
+        style={{ width: 70, fontSize: 12, padding: "3px 6px", borderRadius: 4, border: `1.5px solid ${C.azul}`, background: "#fff", color: C.cinzaEscuro, textAlign: "center", outline: "none" }} />
+    );
   }
-  return Object.entries(by).map(([g,{rows,sin}])=>{
-    const wR=rows.filter(r=>r.pctReaj>0),wA=rows.filter(r=>r.aprovPct>0);
-    const avg=(arr,fn)=>arr.length?arr.reduce((s,r)=>s+fn(r),0)/arr.length:null;
-    return{
-      grupo:g,rows,sin,
-      avgReaj:avg(wR,r=>r.pctReaj),avgPleito:avg(wR,r=>r.pctPleito),avgAprov:avg(wA,r=>r.aprovPct),
-      totalAtual:rows.reduce((s,r)=>s+r.valAtual,0),
-      totalPleito:rows.reduce((s,r)=>s+r.valPleito,0),
-      totalDif:rows.reduce((s,r)=>s+r.diferenca,0),
-    };
-  }).sort((a,b)=>b.rows.length-a.rows.length);
-};
-
-
-
-// ─── INLINE SELECT ────────────────────────────────────────────────────────────
-const InlineSelect = ({ value, options, colorMap, onChange }) => {
-  const [open,setOpen] = useState(false);
-  const [pos,setPos]   = useState({top:0,left:0});
-  const ref = useRef(null);
-  const c   = colorMap?.[value]||{dot:"#9CA3AF",text:"#6B7280",bg:"#F3F4F6"};
-
-  const handleOpen = e => {
-    e.stopPropagation();
-    if (!open&&ref.current) {
-      const r=ref.current.getBoundingClientRect();
-      const menuH=options.length*42;
-      const openUp=window.innerHeight-r.bottom<menuH+8;
-      setPos({top:openUp?r.top-menuH-4:r.bottom+4,left:r.left});
-    }
-    setOpen(o=>!o);
-  };
 
   return (
-    <div style={{position:"relative",display:"inline-block"}}>
-      <div ref={ref} onClick={handleOpen}
-           style={{display:"inline-flex",alignItems:"center",gap:5,cursor:"pointer",
-                   padding:"2px 8px",borderRadius:99,background:c.bg,
-                   border:`1.5px solid ${open?c.dot:"transparent"}`,userSelect:"none"}}>
-        {colorMap&&<div style={{width:6,height:6,borderRadius:99,background:c.dot,flexShrink:0}}/>}
-        <span style={{fontSize:11,fontWeight:600,color:c.text,whiteSpace:"nowrap"}}>{value}</span>
-        <span style={{fontSize:8,color:c.text,opacity:.6}}>▼</span>
+    <span onClick={() => { setVal(value); setEditing(true); }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", padding: "2px 6px", borderRadius: 4, transition: "background 0.15s" }}
+      onMouseEnter={e => e.currentTarget.style.background = C.azulClaro}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <span style={{ color: C.cinzaEscuro, fontSize: 12 }}>{value || "—"}</span>
+      <span style={{ opacity: 0.35, fontSize: 10 }}>✏</span>
+      {saving && <span style={{ fontSize: 10, color: C.cinzaClaro }}>…</span>}
+    </span>
+  );
+};
+
+// ─── Painel de filtros (popover) ──────────────────────────────────────────────
+const FiltrosPopover = ({ filtros, setFiltros, meses, gerentes, onLimpar }) => {
+  const { filtroMes, filtroGerente, filtroStatus, filtroTipo, busca } = filtros;
+  const toggle = (key, val) => setFiltros(f => {
+    const s = new Set(f[key]); s.has(val) ? s.delete(val) : s.add(val);
+    return { ...f, [key]: [...s] };
+  });
+
+  const labelStyle = { fontSize: 10, fontWeight: 700, color: C.cinzaClaro, letterSpacing: "0.08em", marginBottom: 6, display: "block" };
+  const chipStyle = (ativo) => ({
+    padding: "3px 9px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+    border: `1px solid ${ativo ? C.azul : C.borda}`,
+    background: ativo ? C.azul : "#f8fafc",
+    color: ativo ? "#fff" : C.cinzaMedio,
+    fontWeight: ativo ? 600 : 400, transition: "all 0.12s",
+    whiteSpace: "nowrap"
+  });
+
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", gap: 16,
+      padding: "4px 0"
+    }}>
+      {/* Busca */}
+      <div>
+        <span style={labelStyle}>BUSCA</span>
+        <input
+          type="text" placeholder="CR, cliente, descrição…"
+          value={busca} onChange={e => setFiltros(f => ({ ...f, busca: e.target.value }))}
+          style={{
+            width: "100%", padding: "6px 10px", borderRadius: 6, boxSizing: "border-box",
+            border: `1px solid ${C.borda}`, background: "#f8fafc",
+            color: C.cinzaEscuro, fontSize: 12, outline: "none"
+          }}
+        />
       </div>
-      {open&&(<>
-        <div onClick={()=>setOpen(false)} style={{position:"fixed",inset:0,zIndex:500}}/>
-        <div style={{position:"fixed",top:pos.top,left:pos.left,zIndex:501,
-                     background:"#fff",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,.18)",
-                     border:"1px solid #E2E8F0",minWidth:180,overflow:"hidden"}}>
-          {options.map(opt=>{
-            const oc=colorMap?.[opt]||{dot:"#9CA3AF",text:"#374151"};
-            return(
-              <div key={opt} onClick={e=>{e.stopPropagation();onChange(opt);setOpen(false);}}
-                   style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",
-                            cursor:"pointer",background:opt===value?"#F8FAFC":"#fff"}}
-                   onMouseOver={e=>e.currentTarget.style.background="#F1F5F9"}
-                   onMouseOut={e=>e.currentTarget.style.background=opt===value?"#F8FAFC":"#fff"}>
-                {colorMap&&<div style={{width:8,height:8,borderRadius:99,background:oc.dot}}/>}
-                <span style={{fontSize:13,color:oc.text,fontWeight:opt===value?600:400}}>{opt}</span>
-                {opt===value&&<span style={{marginLeft:"auto",fontSize:11,color:oc.dot}}>✓</span>}
-              </div>
+
+      {/* Mês */}
+      <div>
+        <span style={labelStyle}>MÊS</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {meses.map(m => (
+            <button key={m} onClick={() => toggle("filtroMes", m)} style={chipStyle(filtroMes.includes(m))}>{m}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Gerente */}
+      <div>
+        <span style={labelStyle}>GERENTE REGIONAL</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {gerentes.map(g => (
+            <button key={g} onClick={() => toggle("filtroGerente", g)} style={chipStyle(filtroGerente.includes(g))}>{g}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Status */}
+      <div>
+        <span style={labelStyle}>STATUS</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {STATUS_OPTS.map(s => {
+            const cor = STATUS_COR[s];
+            const ativo = filtroStatus.includes(s);
+            return (
+              <button key={s} onClick={() => toggle("filtroStatus", s)} style={{
+                padding: "3px 9px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                border: `1px solid ${ativo ? (cor?.color || C.azul) : C.borda}`,
+                background: ativo ? (cor?.bg || C.azulClaro) : "#f8fafc",
+                color: ativo ? (cor?.color || C.azul) : C.cinzaMedio,
+                fontWeight: ativo ? 700 : 400, transition: "all 0.12s"
+              }}>{s}</button>
             );
           })}
         </div>
-      </>)}
+      </div>
+
+      {/* Tipo */}
+      <div>
+        <span style={labelStyle}>TIPO DE NEGÓCIO</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {["Todos", ...TIPO_OPTS].map(t => {
+            const ativo = t === "Todos" ? !filtroTipo : filtroTipo === t;
+            return (
+              <button key={t} onClick={() => setFiltros(f => ({ ...f, filtroTipo: t === "Todos" ? "" : t }))}
+                style={chipStyle(ativo)}>{t}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Limpar */}
+      <button onClick={onLimpar} style={{
+        padding: "7px", borderRadius: 6, border: `1px solid ${C.borda}`,
+        background: "#f8fafc", color: C.cinzaMedio, fontSize: 12, cursor: "pointer", width: "100%"
+      }}>✕ Limpar filtros</button>
     </div>
   );
 };
 
-
-
-// ─── PILL ─────────────────────────────────────────────────────────────────────
-const Pill = ({ label, active, onClick, color }) => (
-  <button onClick={onClick} style={{
-    padding:"3px 10px",borderRadius:99,border:"none",cursor:"pointer",
-    fontFamily:"inherit",fontSize:11,fontWeight:500,transition:"all .15s",
-    background:active?(color||DARK):"rgba(255,255,255,.08)",
-    color:active?"#fff":"rgba(255,255,255,.55)",
-    whiteSpace:"nowrap",
-  }}>{label}</button>
-);
-
-// ─── GERENCIAL ────────────────────────────────────────────────────────────────
-function SecaoGerencial({ data, setData }) {
-  const [fMeses,  setFMeses]  = useState(new Set());
-  const [fFarmer, setFFarmer] = useState("Todos");
-  const [fStatus, setFStatus] = useState(new Set());
-  const [fTipo,   setFTipo]   = useState("Todos");
-  const [busca,   setBusca]   = useState("");
-  const [tooltip, setTooltip] = useState({visible:false,text:"",x:0,y:0});
-
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState(null);
-
-  const editRow = async (id, field, value) => {
-    // Update local state immediately
-    setData(prev => prev.map(r => r._id===id ? {...r,[field]:value,_edited:true} : r));
-
-    // Save to Google Sheets via API
-    setSaving(true); setSaveMsg(null);
-    try {
-      const currentRow = data.find(r => r._id === id);
-      if (!currentRow) return;
-
-      // Column names to look up in the sheet
-      const colNames = {
-        status: "Status Real",
-        tipo:   "Tipo de Negócio",
-      };
-      const colName = colNames[field];
-      if (!colName) return;
-
-      const res = await fetch("/api/update-sheet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          updates: [{ cr: currentRow.cr, colName, value }]
-        }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Erro ao salvar");
-      setSaveMsg({ ok: true, text: "✓ Salvo na planilha" });
-    } catch(e) {
-      console.error("Save error:", e);
-      setSaveMsg({ ok: false, text: `Erro: ${e.message}` });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSaveMsg(null), 4000);
-    }
-  };
-
-  const mesesDisp  = ORDEM_MES.filter(m=>data.some(r=>r.mes===m));
-  const todosMeses = fMeses.size===0;
-  const toggleMes  = m=>setFMeses(prev=>{const n=new Set(prev);n.has(m)?n.delete(m):n.add(m);return n;});
-  const todosStat  = fStatus.size===0;
-
-  // Farmers: só nomes reais da equipe
-  const farmersDisp = ["Todos",...EQUIPE.filter(p=>data.some(r=>r.farmer.toUpperCase().includes(p.toUpperCase())))];
-
-  const filtrado = data.filter(r => {
-    if (!todosMeses&&!fMeses.has(r.mes)) return false;
-    if (fFarmer!=="Todos"&&!r.farmer.toUpperCase().includes(fFarmer.toUpperCase())) return false;
-    if (!todosStat&&!fStatus.has(r.status)&&!fStatus.has(r.statusReal)) return false;
-    if (fTipo!=="Todos"&&r.tipo!==fTipo) return false;
-    if (busca&&![r.grupo,r.cr,r.descr].some(v=>v.toUpperCase().includes(busca.toUpperCase()))) return false;
-    return true;
-  });
-
-  const cardBase = todosMeses?data:data.filter(r=>fMeses.has(r.mes));
-  const buildCard = rows => ({
-    total:rows.length,
-    por:[
-      {s:"Concluído",      n:rows.filter(r=>r.status==="Concluído"||r.statusReal==="Concluído").length},
-      {s:"Pendente Cliente",n:rows.filter(r=>r.status==="Pendente Cliente").length},
-      {s:"Pendente GPS",   n:rows.filter(r=>r.status==="Pendente GPS").length},
-      {s:"Em Negociação",  n:rows.filter(r=>r.status==="Em Negociação"||r.status==="Em Negociação Antecipada").length},
-      {s:"Negócio Perdido",n:rows.filter(r=>r.status==="Negócio Perdido"||r.statusReal==="Negócio Perdido").length},
-      {s:"N/A",            n:rows.filter(r=>r.status==="N/A").length},
-    ].filter(x=>x.n>0)
-  });
-  const cardGeral = buildCard(cardBase);
-  const cardsTipo = TIPO_G.map(t=>({tipo:t,...buildCard(cardBase.filter(r=>r.tipo===t))})).filter(c=>c.total>0);
-
-  const grupos = (()=>{
-    const by={};
-    filtrado.forEach(r=>{if(!by[r.grupo])by[r.grupo]=[];by[r.grupo].push(r);});
-    return Object.entries(by).map(([g,crs])=>({g,crs})).sort((a,b)=>(a.g||"").localeCompare(b.g||""));
-  })();
-
-  const showTip=(e,t)=>{if(t)setTooltip({visible:true,text:t,x:e.clientX,y:e.clientY});};
-  const moveTip=e=>{if(tooltip.visible)setTooltip(p=>({...p,x:e.clientX,y:e.clientY}));};
-  const hideTip=()=>setTooltip(p=>({...p,visible:false}));
+// ─── KPI Card Total ───────────────────────────────────────────────────────────
+const KpiCardTotal = ({ total, kpiStatus }) => {
+  const linhas = [
+    { key: "Concluído",               label: "Concluído" },
+    { key: "Aprovado",                label: "Aprovado" },
+    { key: "Pendente Cliente",        label: "Pendente Cliente" },
+    { key: "Pendente GPS",            label: "Pendente GPS" },
+    { key: "Em Negociação",           label: "Em Negociação" },
+    { key: "Em Negociação Antecipada",label: "Em Neg. Antecipada" },
+    { key: "Aguardando Reajuste",     label: "Aguardando Reajuste" },
+    { key: "Negócio Perdido",         label: "Negócio Perdido" },
+  ].filter(({ key }) => kpiStatus[key]);
 
   return (
-    <div>
-      {tooltip.visible&&tooltip.text&&(
-        <div style={{position:"fixed",zIndex:9999,pointerEvents:"none",
-          left:tooltip.x+14,top:tooltip.y-10,background:DARK,color:"#F8FAFC",
-          padding:"8px 12px",borderRadius:8,fontSize:12,maxWidth:300,lineHeight:1.5,
-          boxShadow:"0 4px 16px rgba(0,0,0,.3)",whiteSpace:"pre-wrap"}}>{tooltip.text}</div>
-      )}
-
-      {/* FILTROS */}
-      <div style={{background:"#fff",borderRadius:10,padding:"10px 14px",marginBottom:16,
-                   display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",
-                   boxShadow:"0 1px 3px rgba(0,0,0,.06)"}}>
-        <input value={busca} onChange={e=>setBusca(e.target.value)}
-          placeholder="Buscar..." style={{padding:"5px 10px",borderRadius:8,
-          border:"1px solid #E2E8F0",fontSize:12,color:DARK,outline:"none",
-          width:160,fontFamily:"inherit"}}/>
-        <div style={{width:1,height:20,background:"#E2E8F0"}}/>
-        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:600,color:"#94A3B8"}}>MÊS</span>
-          <button onClick={()=>setFMeses(new Set())} style={{padding:"3px 10px",borderRadius:99,
-            border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,
-            background:todosMeses?DARK:"#F1F4F8",color:todosMeses?"#fff":"#64748B"}}>Todos</button>
-          {mesesDisp.map(m=>(
-            <button key={m} onClick={()=>toggleMes(m)} style={{padding:"3px 10px",borderRadius:99,
-              border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,
-              background:fMeses.has(m)?DARK:"#F1F4F8",color:fMeses.has(m)?"#fff":"#64748B"}}>{m}</button>
-          ))}
-        </div>
-        <div style={{width:1,height:20,background:"#E2E8F0"}}/>
-        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:600,color:"#94A3B8"}}>FARMER</span>
-          {farmersDisp.map(f=>(
-            <button key={f} onClick={()=>setFFarmer(f)} style={{padding:"3px 10px",borderRadius:99,
-              border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,
-              background:fFarmer===f?(COR_P[f]||DARK):"#F1F4F8",
-              color:fFarmer===f?"#fff":"#64748B"}}>{f}</button>
-          ))}
-        </div>
-        <div style={{width:1,height:20,background:"#E2E8F0"}}/>
-        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:600,color:"#94A3B8"}}>STATUS</span>
-          <button onClick={()=>setFStatus(new Set())} style={{padding:"3px 10px",borderRadius:99,
-            border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,
-            background:todosStat?DARK:"#F1F4F8",color:todosStat?"#fff":"#64748B"}}>Todos</button>
-          {["Concluído","Pendente Cliente","Pendente GPS","Em Negociação","Negócio Perdido","N/A"].map(s=>(
-            <button key={s} onClick={()=>setFStatus(prev=>{const n=new Set(prev);n.has(s)?n.delete(s):n.add(s);return n;})}
-              style={{padding:"3px 10px",borderRadius:99,border:"none",cursor:"pointer",
-                fontFamily:"inherit",fontSize:11,fontWeight:500,
-                background:fStatus.has(s)?(STATUS_COR[s]?.dot||DARK):"#F1F4F8",
-                color:fStatus.has(s)?"#fff":"#64748B"}}>{s}</button>
-          ))}
-        </div>
-        <div style={{width:1,height:20,background:"#E2E8F0"}}/>
-        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:600,color:"#94A3B8"}}>TIPO</span>
-          {["Todos",...TIPO_G].map(t=>(
-            <button key={t} onClick={()=>setFTipo(t)} style={{padding:"3px 10px",borderRadius:99,
-              border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,
-              background:fTipo===t?DARK:"#F1F4F8",color:fTipo===t?"#fff":"#64748B"}}>{t}</button>
-          ))}
-        </div>
-        <span style={{marginLeft:"auto",fontSize:11,color:"#94A3B8",whiteSpace:"nowrap"}}>
-          {filtrado.length} CRs · {grupos.length} grupos
-        </span>
+    <div style={{
+      background: C.bgCard, borderRadius: 10, padding: "16px 20px",
+      border: `1px solid ${C.borda}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+      borderTop: `3px solid ${C.azul}`, gridColumn: "span 2"
+    }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14, borderBottom: `1px solid ${C.borda}`, paddingBottom: 10 }}>
+        <div style={{ fontSize: 12, color: C.cinzaClaro, fontWeight: 500 }}>Total de CRs</div>
+        <div style={{ fontSize: 30, fontWeight: 800, color: C.azul, lineHeight: 1 }}>{total}</div>
       </div>
-
-      {/* CARDS */}
-      <div style={{display:"grid",gridTemplateColumns:`repeat(${1+cardsTipo.length},1fr)`,
-                   gap:12,marginBottom:20}}>
-        <div style={{background:DARK,borderRadius:12,padding:"16px 18px",boxShadow:"0 4px 14px rgba(26,35,50,.25)"}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-            <div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,.5)",marginBottom:3}}>Total Geral</div>
-              <div style={{fontSize:32,fontWeight:800,color:"#fff",lineHeight:1}}>{cardGeral.total}</div>
-            </div>
-            <div style={{fontSize:24,opacity:.3}}>📋</div>
-          </div>
-          {cardGeral.por.map(({s,n})=>{
-            const c=STATUS_COR[s]||{dot:"#9CA3AF",text:"rgba(255,255,255,.6)"};
-            const p=cardGeral.total>0?Math.round(n/cardGeral.total*100):0;
-            return(
-              <div key={s} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-                <div style={{width:7,height:7,borderRadius:99,background:c.dot,flexShrink:0}}/>
-                <span style={{fontSize:11,color:"rgba(255,255,255,.6)",flex:1}}>{s}</span>
-                <span style={{fontSize:12,fontWeight:700,color:"#fff",minWidth:20,textAlign:"right"}}>{n}</span>
-                <span style={{fontSize:10,color:"rgba(255,255,255,.3)",minWidth:32,textAlign:"right"}}>({p}%)</span>
-              </div>
-            );
-          })}
-        </div>
-        {cardsTipo.map(({tipo,total,por})=>{
-          const conc=por.find(p=>p.s==="Concluído")?.n||0;
-          return(
-            <div key={tipo} style={{background:"#fff",borderRadius:12,padding:"16px 18px",
-                                    borderLeft:`4px solid ${DARK}`,boxShadow:"0 1px 4px rgba(0,0,0,.07)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-                <div>
-                  <div style={{fontSize:10,color:"#94A3B8",marginBottom:3}}>{tipo}</div>
-                  <div style={{fontSize:32,fontWeight:800,color:DARK,lineHeight:1}}>{total}</div>
-                  <div style={{fontSize:10,color:"#94A3B8",marginTop:3}}>
-                    {total>0?Math.round(conc/total*100):0}% concluído
-                  </div>
-                </div>
-                <div style={{background:"#F1F4F8",borderRadius:8,padding:"5px 9px",
-                              fontSize:11,fontWeight:700,color:DARK,height:"fit-content"}}>{tipo}</div>
-              </div>
-              {por.map(({s,n})=>{
-                const c=STATUS_COR[s]||{dot:"#9CA3AF"};
-                const p=total>0?Math.round(n/total*100):0;
-                return(
-                  <div key={s} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-                    <div style={{width:7,height:7,borderRadius:99,background:c.dot,flexShrink:0}}/>
-                    <span style={{fontSize:11,color:"#64748B",flex:1}}>{s}</span>
-                    <span style={{fontSize:12,fontWeight:700,color:DARK,minWidth:20,textAlign:"right"}}>{n}</span>
-                    <span style={{fontSize:10,color:"#94A3B8",minWidth:32,textAlign:"right"}}>({p}%)</span>
-                  </div>
-                );
-              })}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {linhas.map(({ key, label }) => {
+          const qtd = kpiStatus[key];
+          const cor = STATUS_COR[key] || { color: C.cinzaMedio, bg: "#f5f5f5" };
+          const pct = total > 0 ? Math.round((qtd / total) * 100) : 0;
+          return (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: cor.color, flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: C.cinzaMedio }}>{label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: cor.color, minWidth: 20, textAlign: "right" }}>{qtd}</span>
+              <span style={{ fontSize: 10, color: C.cinzaClaro, minWidth: 30, textAlign: "right" }}>{pct}%</span>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+};
 
-      {/* TABELA */}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {grupos.length===0&&(
-          <div style={{background:"#fff",borderRadius:12,padding:"48px 0",
-                       textAlign:"center",color:"#94A3B8",fontSize:14}}>Nenhum CR encontrado.</div>
+// ─── KPI Card simples ─────────────────────────────────────────────────────────
+const KpiCard = ({ label, value, color }) => (
+  <div style={{
+    background: C.bgCard, borderRadius: 10, padding: "14px 18px",
+    border: `1px solid ${C.borda}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+    borderTop: `3px solid ${color || C.azul}`
+  }}>
+    <div style={{ fontSize: 11, color: C.cinzaClaro, marginBottom: 4, fontWeight: 500 }}>{label}</div>
+    <div style={{ fontSize: 22, fontWeight: 800, color: color || C.cinzaEscuro, lineHeight: 1 }}>{value}</div>
+  </div>
+);
+
+// ─── Seção Gestão de Reajustes ────────────────────────────────────────────────
+const SecaoGerencial = ({ dados, onUpdate, setToast, filtros }) => {
+  const [expandido, setExpandido] = useState({});
+  const { busca, filtroMes, filtroGerente, filtroStatus, filtroTipo } = filtros;
+
+  const filtrado = useMemo(() => dados.filter(d => {
+    if (busca && !`${d.cr} ${d.grupoCliente} ${d.descri} ${d.gerente}`.toLowerCase().includes(busca.toLowerCase())) return false;
+    if (filtroMes.length && !filtroMes.includes(d.mes)) return false;
+    if (filtroGerente.length && !filtroGerente.includes(d.gerente)) return false;
+    if (filtroStatus.length) {
+      const st = d.status || statusTemporal(d) || "";
+      if (!filtroStatus.some(f => st.toLowerCase().includes(f.toLowerCase()))) return false;
+    }
+    if (filtroTipo && d.tipo !== filtroTipo) return false;
+    return true;
+  }), [dados, busca, filtroMes, filtroGerente, filtroStatus, filtroTipo]);
+
+  const grupos = useMemo(() => {
+    const map = {};
+    filtrado.forEach(d => {
+      const g = d.grupoCliente || "Sem Grupo";
+      if (!map[g]) map[g] = [];
+      map[g].push(d);
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtrado]);
+
+  const kpiStatus = useMemo(() => {
+    const m = {};
+    filtrado.forEach(d => {
+      const st = d.status || statusTemporal(d) || "Sem Status";
+      m[st] = (m[st] || 0) + 1;
+    });
+    return m;
+  }, [filtrado]);
+
+  // KPIs adicionais (excluindo os que já estão no card total)
+  const kpiExtras = useMemo(() => {
+    const ignorar = new Set(["Concluído","Aprovado","Pendente Cliente","Pendente GPS","Negócio Perdido"]);
+    return Object.entries(kpiStatus)
+      .filter(([st]) => !ignorar.has(st))
+      .sort((a, b) => b[1] - a[1]);
+  }, [kpiStatus]);
+
+  const negociacoesCriticas = useMemo(() => {
+    const hoje = new Date();
+    const map = {};
+    filtrado
+      .filter(d => parseData(d.inicioNeg) && !parseData(d.dataAprov))
+      .forEach(d => {
+        const g = d.grupoCliente || "Sem Grupo";
+        const dias = diasEntre(parseData(d.inicioNeg), hoje);
+        if (!map[g] || dias > map[g].dias) map[g] = { grupoCliente: g, dias };
+      });
+    return Object.values(map).sort((a, b) => b.dias - a.dias).slice(0, 6);
+  }, [filtrado]);
+
+  const semaforo = (dias) => {
+    if (dias >= 60) return { color: C.vermelho, bg: C.vermelhoClaro, label: "Crítico" };
+    if (dias >= 30) return { color: C.laranja, bg: C.laranjaClaro, label: "Atenção" };
+    return { color: C.verde, bg: C.verdeClaro, label: "Ok" };
+  };
+
+  const kpiTipo = useMemo(() => {
+    const m = {};
+    filtrado.forEach(d => {
+      const t = d.tipo || "Sem Tipo";
+      m[t] = (m[t] || 0) + 1;
+    });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  }, [filtrado]);
+
+  const salvar = async (row, campo, valor) => {
+    try {
+      const r = await fetch(UPDATE_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cr: row.cr, campo, valor }) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      onUpdate(row.cr, campo, valor);
+      setToast("Salvo com sucesso");
+    } catch (e) {
+      setToast("Erro ao salvar: " + e.message);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+        <KpiCardTotal total={filtrado.length} kpiStatus={kpiStatus} />
+        {kpiExtras.map(([st, c]) => {
+          const cor = STATUS_COR[st] || { color: C.cinzaMedio, bg: "#f0f0f0" };
+          return <KpiCard key={st} label={st} value={c} color={cor.color} />;
+        })}
+        {/* Card tipos de negócio — MEIO */}
+        {kpiTipo.length > 0 && (
+          <div style={{
+            background: C.bgCard, borderRadius: 10, padding: "16px 20px",
+            border: `1px solid ${C.borda}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+            borderTop: `3px solid ${C.cinzaMedio}`, gridColumn: "span 2"
+          }}>
+            <div style={{ fontSize: 12, color: C.cinzaClaro, fontWeight: 500, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${C.borda}` }}>
+              Tipo de Negócio
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {kpiTipo.map(([tipo, qtd]) => {
+                const cor = TIPO_COR[tipo] || C.cinzaMedio;
+                const pct = filtrado.length > 0 ? Math.round((qtd / filtrado.length) * 100) : 0;
+                return (
+                  <div key={tipo} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cor, flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, color: C.cinzaMedio }}>{tipo}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: cor, minWidth: 20, textAlign: "right" }}>{qtd}</span>
+                    <span style={{ fontSize: 10, color: C.cinzaClaro, minWidth: 30, textAlign: "right" }}>{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
-        {grupos.map(({g,crs})=>{
-          const nEdit=crs.filter(r=>r._edited).length;
-          return(
-            <div key={g} style={{background:"#fff",borderRadius:12,overflow:"hidden",
-                                  boxShadow:"0 1px 4px rgba(0,0,0,.07)"}}>
-              <div style={{background:DARK2,padding:"10px 16px",display:"flex",
-                            alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>{g}</span>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,.4)"}}>{crs.length} CR{crs.length!==1?"s":""}</span>
-                  {nEdit>0&&<span style={{fontSize:9,background:"#F59E0B",color:"#fff",
-                    padding:"1px 6px",borderRadius:99,fontWeight:600}}>{nEdit} editado{nEdit!==1?"s":""}</span>}
+
+        {/* Card negociações críticas — DIREITA */}
+        {negociacoesCriticas.length > 0 && (
+          <div style={{
+            background: C.bgCard, borderRadius: 10, padding: "16px 20px",
+            border: `1px solid ${C.borda}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+            borderTop: `3px solid ${C.vermelho}`, gridColumn: "span 2"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: `1px solid ${C.borda}` }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="2.5" r="2" fill={C.vermelho}/><circle cx="7" cy="7" r="2" fill={C.laranja}/><circle cx="7" cy="11.5" r="2" fill={C.verde}/></svg>
+              <span style={{ fontSize: 12, color: C.cinzaClaro, fontWeight: 500 }}>Negociações Críticas</span>
+              <span style={{ fontSize: 10, color: C.cinzaClaro, marginLeft: "auto" }}>dias em aberto</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {negociacoesCriticas.map(({ grupoCliente, dias }) => {
+                const s = semaforo(dias);
+                return (
+                  <div key={grupoCliente} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: s.color, flexShrink: 0, boxShadow: `0 0 0 3px ${s.bg}` }} />
+                    <span style={{ flex: 1, fontSize: 12, color: C.cinzaEscuro, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{grupoCliente}</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: s.color, minWidth: 28, textAlign: "right" }}>{dias}d</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.borda}` }}>
+              {[{ label: "Crítico (≥60d)", color: C.vermelho }, { label: "Atenção (≥30d)", color: C.laranja }, { label: "Ok (<30d)", color: C.verde }].map(({ label, color }) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+                  <span style={{ fontSize: 10, color: C.cinzaClaro }}>{label}</span>
                 </div>
-                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {["Concluído","Pendente Cliente","Pendente GPS","Em Negociação","Negócio Perdido"].map(s=>{
-                    const n=crs.filter(c=>c.status===s||c.statusReal===s).length;
-                    if(!n) return null;
-                    const sc=STATUS_COR[s];
-                    return(
-                      <span key={s} style={{fontSize:10,fontWeight:600,padding:"1px 8px",
-                        borderRadius:99,background:sc.bg,color:sc.text}}>{n} {s}</span>
-                    );
-                  })}
-                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* Tabela por grupo */}
+      {grupos.map(([grupo, rows]) => {
+        const aberto = expandido[grupo] !== false;
+        const tiposGrupo = [...new Set(rows.map(r => r.tipo).filter(Boolean))];
+        const statusGrupo = [...new Set(rows.map(r => r.status || statusTemporal(r)).filter(Boolean))];
+        const temPerdido = statusGrupo.some(s => s?.includes("Perdido"));
+        const temConcluido = statusGrupo.every(s => s?.includes("Concluído") || s?.includes("Aprovado"));
+
+        return (
+          <div key={grupo} style={{ background: C.bgCard, borderRadius: 10, border: `1px solid ${C.borda}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div onClick={() => setExpandido(p => ({ ...p, [grupo]: !aberto }))}
+              style={{ padding: "11px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", borderBottom: aberto ? `1px solid ${C.borda}` : "none", userSelect: "none" }}>
+              <span style={{ color: C.cinzaClaro, fontSize: 10 }}>{aberto ? "▼" : "▶"}</span>
+              <span style={{ fontWeight: 700, color: C.cinzaEscuro, fontSize: 13 }}>{grupo}</span>
+              <span style={{ fontSize: 11, color: C.cinzaClaro, fontWeight: 400 }}>{rows.length} contrato{rows.length !== 1 ? "s" : ""}</span>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {Object.entries(
+                  rows.reduce((acc, r) => {
+                    const st = r.status || statusTemporal(r) || "Sem Status";
+                    acc[st] = (acc[st] || 0) + 1;
+                    return acc;
+                  }, {})
+                ).sort((a, b) => b[1] - a[1]).map(([st, qtd]) => {
+                  const cor = STATUS_COR[st] || { color: C.cinzaMedio, bg: "#f0f0f0" };
+                  return (
+                    <span key={st} style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      padding: "2px 8px", borderRadius: 4,
+                      background: cor.bg, border: `1px solid ${cor.color}30`,
+                      fontSize: 11, color: cor.color, fontWeight: 600, whiteSpace: "nowrap"
+                    }}>
+                      {st} <span style={{ fontWeight: 800 }}>{qtd}</span>
+                    </span>
+                  );
+                })}
               </div>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
-                  <colgroup>
-                    <col style={{width:70}}/><col style={{width:220}}/><col style={{width:55}}/>
-                    <col style={{width:75}}/><col style={{width:60}}/><col style={{width:60}}/>
-                    <col style={{width:75}}/><col style={{width:105}}/><col style={{width:105}}/>
-                  </colgroup>
+            </div>
+            {aberto && (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
-                    <tr style={{background:"#F8FAFC"}}>
-                      {["CR","Descrição","Mês","Farmer","Devido","Aplicado","Tempo Neg.","Tipo","Status"].map((h,i)=>(
-                        <th key={h} style={{textAlign:i>2?"center":"left",padding:"7px 12px",
-                          fontSize:10,color:"#94A3B8",fontWeight:600,
-                          borderBottom:"1px solid #E2E8F0",whiteSpace:"nowrap"}}>{h}</th>
+                    <tr style={{ background: "#f8fafc" }}>
+                      {["CR","Descrição","Mês","Gerente Regional","Devido %","Aplicado %","Prazo de Negociação","Tipo","Status"].map(h => (
+                        <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: C.cinzaClaro, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", borderBottom: `1px solid ${C.borda}` }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {crs.map((cr,ci)=>(
-                      <tr key={cr._id}
-                          style={{background:cr._edited?"#FFFBEB":ci%2===0?"#fff":"#FAFBFC",
-                                  borderTop:"1px solid #F1F4F8"}}
-                          onMouseOver={e=>{if(!cr._edited)e.currentTarget.style.background="#EFF6FF";}}
-                          onMouseOut={e=>{e.currentTarget.style.background=cr._edited?"#FFFBEB":ci%2===0?"#fff":"#FAFBFC";}}>
-                        <td style={{padding:"7px 12px",fontSize:11,color:"#64748B",fontFamily:"monospace",
-                                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                          {cr._edited&&<span style={{color:"#F59E0B",marginRight:3}}>●</span>}
-                          {cr.cr}
-                        </td>
-                        <td style={{padding:"7px 12px",fontSize:11,color:DARK,
-                                    cursor:cr.info?"help":"default",overflow:"hidden"}}
-                            onMouseEnter={e=>showTip(e,cr.info)}
-                            onMouseMove={moveTip} onMouseLeave={hideTip}>
-                          <span style={{display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                            {cr.descr}
-                          </span>
-                        </td>
-                        <td style={{padding:"7px 12px",fontSize:11,color:"#64748B",textAlign:"center",whiteSpace:"nowrap"}}>{cr.mes}</td>
-                        <td style={{padding:"7px 12px",fontSize:11,color:"#64748B",textAlign:"center",
-                                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cr.farmer||"—"}</td>
-                        <td style={{padding:"7px 12px",fontSize:11,textAlign:"center",whiteSpace:"nowrap",
-                                    color:cr.devido&&cr.devido!=="—"?"#7C3AED":"#94A3B8",
-                                    fontWeight:cr.devido&&cr.devido!=="—"?600:400}}>
-                          {pctFmt(cr.devido)}
-                        </td>
-                        <td style={{padding:"7px 12px",fontSize:11,textAlign:"center",whiteSpace:"nowrap",
-                                    color:cr.aplicado&&cr.aplicado!=="—"?"#059669":"#94A3B8",
-                                    fontWeight:cr.aplicado&&cr.aplicado!=="—"?600:400}}>
-                          {pctFmt(cr.aplicado)}
-                        </td>
-                        <td style={{padding:"7px 12px",textAlign:"center",whiteSpace:"nowrap"}}>
-                          {cr.diasNeg!=null?(
-                            <span style={{fontWeight:600,fontSize:11,
-                              color:cr.concluido?"#16A34A":"#D97706",
-                              background:cr.concluido?"#DCFCE7":"#FEF9C3",
-                              padding:"2px 7px",borderRadius:99}}>
-                              {cr.diasNeg}d {cr.concluido?"✓":"⏳"}
+                    {rows.map((row, i) => {
+                      const inicio = parseData(row.inicioNeg);
+                      const aprov = parseData(row.dataAprov);
+                      const dias = diasEntre(inicio, aprov || new Date());
+                      const concluido = !!aprov;
+                      const stTemp = statusTemporal(row);
+                      return (
+                        <tr key={row.cr + i} style={{ borderBottom: `1px solid #f0f4f7`, background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                          <td style={{ padding: "8px 12px", color: C.cinzaMedio, fontFamily: "monospace", fontSize: 11 }}>{row.cr}</td>
+                          <td style={{ padding: "8px 12px", color: C.cinzaEscuro, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.descri}</td>
+                          <td style={{ padding: "8px 12px", color: C.cinzaMedio, whiteSpace: "nowrap" }}>{row.mes}</td>
+                          <td style={{ padding: "8px 12px", color: C.cinzaEscuro, whiteSpace: "nowrap", fontWeight: 500 }}>{row.gerente}</td>
+                          <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                            <EditableCell value={pctFmt(row.devido)} type="text" onSave={(v) => salvar(row, "Devido (%)", v)} />
+                          </td>
+                          <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                            <EditableCell value={pctFmt(row.aplicado)} type="text" onSave={(v) => salvar(row, "Aplicado (%)", v)} />
+                          </td>
+                          <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
+                            {stTemp ? (
+                              <span style={{
+                                display: "inline-block", padding: "2px 8px", borderRadius: 4,
+                                background: stTemp.includes("Antecipada") ? C.roxoClaro : C.azulClaro,
+                                color: stTemp.includes("Antecipada") ? C.roxo : C.azul,
+                                fontSize: 11, fontWeight: 600
+                              }}>{stTemp}</span>
+                            ) : dias !== null ? (
+                              <span style={{
+                                display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+                                background: concluido ? C.verdeClaro : C.laranjaClaro,
+                                color: concluido ? C.verde : C.laranja
+                              }}>
+                                {concluido ? "✓" : "⏳"} {dias}d
+                              </span>
+                            ) : <span style={{ color: C.borda }}>—</span>}
+                          </td>
+                          <td style={{ padding: "8px 12px" }}>
+                            <EditableCell value={row.tipo} opts={TIPO_OPTS} type="select" onSave={(v) => salvar(row, "Tipo de Negócio", v)} />
+                          </td>
+                          <td style={{ padding: "8px 12px" }}>
+                            <EditableCell value={row.status} opts={STATUS_OPTS} type="select" onSave={(v) => salvar(row, "Status Real", v)} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {grupos.length === 0 && (
+        <div style={{ color: C.cinzaClaro, textAlign: "center", marginTop: 60, fontSize: 14 }}>Nenhum registro encontrado</div>
+      )}
+    </div>
+  );
+};
+
+// ─── Seção Visão do Cliente ──────────────────────────────────────────────────
+// ─── Seção Vencimentos Contratuais ───────────────────────────────────────────
+const parseVencimento = (str) => {
+  if (!str) return null;
+  const MESES = { janeiro:0,fevereiro:1,março:2,marco:2,abril:3,maio:4,junho:5,julho:6,agosto:7,setembro:8,outubro:9,novembro:10,dezembro:11 };
+  const lower = str.toLowerCase().trim();
+  const match = lower.match(/^([a-zç]+)\/(\d{4})$/);
+  if (!match) return null;
+  const m = MESES[match[1]];
+  if (m === undefined) return null;
+  return new Date(parseInt(match[2]), m, 1);
+};
+
+const mesNome = (d) => d.toLocaleString("pt-BR", { month: "long", year: "numeric" });
+
+const SecaoVencimentos = ({ dados }) => {
+  const hoje = new Date();
+  const [busca, setBusca] = useState("");
+  const [filtroNivel, setFiltroNivel] = useState(null);
+
+  // Monta lista de contratos com vencimento, um por grupo de cliente
+  const contratos = useMemo(() => {
+    // agrupa por grupoCliente, pega o vencimento único por grupo
+    const map = {};
+    dados.forEach(d => {
+      if (!d.vencimentoContrato) return;
+      const venc = parseVencimento(d.vencimentoContrato);
+      if (!venc) return;
+      const key = d.grupoCliente || "Sem Grupo";
+      if (!map[key]) map[key] = { grupo: key, vencimento: venc, vencStr: d.vencimentoContrato, crs: [] };
+      // Pega mês de reajuste mais próximo do vencimento para esse grupo
+      map[key].crs.push(d);
+    });
+
+    return Object.values(map).map(({ grupo, vencimento, vencStr, crs }) => {
+      const diasVenc = Math.ceil((vencimento - hoje) / 86400000);
+
+      // Mês de reajuste: pega o mês com mais CRs nesse grupo
+      const mesCount = {};
+      crs.forEach(d => { if (d.mes) mesCount[d.mes] = (mesCount[d.mes] || 0) + 1; });
+      const mesReajuste = Object.entries(mesCount).sort((a,b) => b[1]-a[1])[0]?.[0] || "";
+
+      // Verifica se o mês de reajuste cai no mesmo ano do vencimento
+      const anoVenc = vencimento.getFullYear();
+      let reajusteNoAnoVenc = false;
+      if (mesReajuste) {
+        const MESES_NUM = { janeiro:0,fevereiro:1,março:2,marco:2,abril:3,maio:4,junho:5,julho:6,agosto:7,setembro:8,outubro:9,novembro:10,dezembro:11 };
+        const mNum = MESES_NUM[mesReajuste.toLowerCase()];
+        if (mNum !== undefined) {
+          // reajuste anual — verifica instância no ano do vencimento
+          const dataReaj = new Date(anoVenc, mNum, 1);
+          const diasReaj = Math.ceil((dataReaj - hoje) / 86400000);
+          reajusteNoAnoVenc = diasReaj > 0 && diasReaj <= 365;
+        }
+      }
+
+      // Semáforo: vermelho ≤90d, amarelo 91-180d, verde >180d
+      const nivel = diasVenc <= 0 ? "vencido" : diasVenc <= 90 ? "critico" : diasVenc <= 180 ? "atencao" : "ok";
+      const alertaRenovacao = diasVenc > 0 && diasVenc <= 180;
+
+      return { grupo, vencimento, vencStr, diasVenc, mesReajuste, reajusteNoAnoVenc, nivel, alertaRenovacao, totalCRs: crs.length };
+    }).sort((a, b) => a.vencimento - b.vencimento);
+  }, [dados]);
+
+  const filtrados = useMemo(() => {
+    let lista = contratos;
+    if (busca.trim()) {
+      const q = busca.toLowerCase();
+      lista = lista.filter(c => c.grupo.toLowerCase().includes(q) || c.vencStr.toLowerCase().includes(q));
+    }
+    if (filtroNivel) lista = lista.filter(c => c.nivel === filtroNivel);
+    return lista;
+  }, [contratos, busca, filtroNivel]);
+
+  const urgentes = contratos.filter(c => c.alertaRenovacao);
+
+  const semCor = {
+    vencido: { color: "#7b1c1c", bg: "#fde8e8", label: "Vencido" },
+    critico: { color: C.vermelho, bg: C.vermelhoClaro, label: "Crítico" },
+    atencao: { color: C.laranja, bg: C.laranjaClaro, label: "Atenção" },
+    ok:      { color: C.verde,   bg: C.verdeClaro,   label: "Ok" },
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* Banner de alertas */}
+      {urgentes.length > 0 && (
+        <div style={{ background: "#fff8e6", border: `1.5px solid ${C.laranja}`, borderRadius: 10, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, color: C.laranja, fontSize: 13 }}>
+            <span>⚠</span>
+            <span>{urgentes.length} contrato{urgentes.length > 1 ? "s" : ""} precisam de ação nos próximos 180 dias</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 16px" }}>
+            {urgentes.map(c => (
+              <div key={c.grupo} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: semCor[c.nivel].color, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: C.cinzaEscuro, fontWeight: 600 }}>{c.grupo}</span>
+                <span style={{ fontSize: 11, color: C.cinzaClaro, marginLeft: "auto", whiteSpace: "nowrap" }}>{c.vencStr}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Barra de filtros */}
+      <div style={{ display: "flex", gap: 8, padding: "10px 16px", background: "#fff", borderRadius: 8, border: `1px solid ${C.borda}`, alignItems: "center", flexWrap: "wrap" }}>
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar cliente…"
+          style={{ fontSize: 12, padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.borda}`, outline: "none", fontFamily: "inherit", width: 180 }} />
+        <div style={{ width: 1, height: 20, background: C.borda, margin: "0 4px" }} />
+        {[["vencido","Vencido"],["critico","Crítico"],["atencao","Atenção"],["ok","Ok"]].map(([n, l]) => {
+          const ativo = filtroNivel === n;
+          return (
+            <button key={n} onClick={() => setFiltroNivel(ativo ? null : n)}
+              style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, border: `1.5px solid ${ativo ? semCor[n].color : C.borda}`, background: ativo ? semCor[n].bg : "#fff", color: ativo ? semCor[n].color : C.cinzaMedio, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.12s" }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: semCor[n].color }} />
+              {l}
+              <span style={{ fontSize: 10, opacity: 0.7 }}>({contratos.filter(c => c.nivel === n).length})</span>
+            </button>
+          );
+        })}
+        {(busca || filtroNivel) && (
+          <button onClick={() => { setBusca(""); setFiltroNivel(null); }}
+            style={{ marginLeft: "auto", fontSize: 11, color: C.cinzaClaro, background: "none", border: "none", cursor: "pointer" }}>
+            Limpar filtros ✕
+          </button>
+        )}
+      </div>
+
+      {/* Cards */}
+      {filtrados.map(c => {
+        const s = semCor[c.nivel];
+        return (
+          <div key={c.grupo} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.borda}`, borderLeft: `4px solid ${s.color}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            {/* Semáforo */}
+            <div style={{ width: 14, height: 14, borderRadius: "50%", background: s.color, flexShrink: 0, boxShadow: `0 0 0 4px ${s.bg}` }} />
+
+            {/* Nome */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: C.cinzaEscuro, fontSize: 13 }}>{c.grupo}</div>
+              <div style={{ fontSize: 11, color: C.cinzaClaro, marginTop: 2 }}>{c.totalCRs} CR{c.totalCRs !== 1 ? "s" : ""}</div>
+            </div>
+
+            {/* Vencimento */}
+            <div style={{ textAlign: "center", minWidth: 130 }}>
+              <div style={{ fontSize: 10, color: C.cinzaClaro, fontWeight: 500 }}>VENCIMENTO</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: s.color, marginTop: 2 }}>{c.vencStr}</div>
+            </div>
+
+            {/* Dias restantes */}
+            <div style={{ textAlign: "center", minWidth: 100 }}>
+              <div style={{ fontSize: 10, color: C.cinzaClaro, fontWeight: 500 }}>DIAS RESTANTES</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: s.color, marginTop: 2 }}>
+                {c.diasVenc <= 0 ? "Vencido" : `${c.diasVenc}d`}
+              </div>
+            </div>
+
+            {/* Mês de reajuste */}
+            <div style={{ textAlign: "center", minWidth: 130 }}>
+              <div style={{ fontSize: 10, color: C.cinzaClaro, fontWeight: 500 }}>MÊS DE REAJUSTE</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.cinzaMedio, marginTop: 2 }}>{c.mesReajuste || "—"}</div>
+            </div>
+
+            {/* Badge de ação */}
+            <div style={{ minWidth: 160, textAlign: "right" }}>
+              {c.diasVenc <= 0 ? (
+                <span style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#fde8e8", color: "#7b1c1c", fontWeight: 700, border: "1px solid #f5c6c6" }}>⚠ Contrato vencido</span>
+              ) : c.reajusteNoAnoVenc ? (
+                <span style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: "#e8f4fd", color: C.azul, fontWeight: 700, border: `1px solid ${C.azul}33` }}>🔄 Renovar + Reajustar juntos</span>
+              ) : c.alertaRenovacao ? (
+                <span style={{ fontSize: 11, padding: "4px 12px", borderRadius: 20, background: C.laranjaClaro, color: C.laranja, fontWeight: 700, border: `1px solid ${C.laranja}44` }}>📄 Enviar carta de renovação</span>
+              ) : (
+                <span style={{ fontSize: 11, color: C.borda }}>—</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {filtrados.length === 0 && (
+        <div style={{ textAlign: "center", padding: 60, color: C.cinzaClaro }}>
+          Nenhum resultado para "{busca}"
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Seção Matriz de Reajuste ────────────────────────────────────────────────
+const SecaoMatriz = ({ dados }) => {
+  const [busca, setBusca] = useState("");
+  const [grupoAberto, setGrupoAberto] = useState({});
+
+  const grupos = useMemo(() => {
+    const map = {};
+    dados.forEach(d => {
+      const g = d.grupoCliente || "Sem Grupo";
+      if (!map[g]) map[g] = [];
+      map[g].push(d);
+    });
+    return Object.entries(map)
+      .map(([grupo, crs]) => ({ grupo, crs: crs.sort((a, b) => String(a.cr).localeCompare(String(b.cr))) }))
+      .sort((a, b) => a.grupo.localeCompare(b.grupo));
+  }, [dados]);
+
+  const filtrados = useMemo(() => {
+    if (!busca.trim()) return grupos;
+    const q = busca.toLowerCase();
+    return grupos
+      .map(({ grupo, crs }) => ({
+        grupo,
+        crs: crs.filter(d =>
+          String(d.cr || "").toLowerCase().includes(q) ||
+          String(d.descricaoCR || "").toLowerCase().includes(q) ||
+          String(d.grupoCliente || "").toLowerCase().includes(q) ||
+          String(d.indiceContratual || "").toLowerCase().includes(q) ||
+          String(d.sindicato || "").toLowerCase().includes(q)
+        )
+      }))
+      .filter(({ crs }) => crs.length > 0);
+  }, [grupos, busca]);
+
+  const toggleGrupo = (g) => setGrupoAberto(v => ({ ...v, [g]: !v[g] }));
+  const todosAbertos = filtrados.every(({ grupo }) => grupoAberto[grupo] !== false);
+
+  const thStyle = {
+    padding: "8px 12px", fontSize: 11, fontWeight: 700, color: C.cinzaClaro,
+    textAlign: "center", letterSpacing: "0.05em", borderBottom: `2px solid ${C.borda}`,
+    background: "#f8fafb", whiteSpace: "nowrap",
+  };
+  const tdStyle = (align = "center") => ({
+    padding: "9px 12px", fontSize: 13, color: C.cinzaMedio,
+    borderBottom: `1px solid ${C.borda}`, textAlign: align, verticalAlign: "middle",
+  });
+
+  return (
+    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Cabeçalho */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <input
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+          placeholder="Buscar cliente, CR, índice, sindicato…"
+          style={{
+            flex: 1, maxWidth: 400, padding: "8px 14px", borderRadius: 8,
+            border: `1px solid ${C.borda}`, fontSize: 13, outline: "none",
+            background: "#fff", color: C.cinzaEscuro,
+          }}
+        />
+        <button
+          onClick={() => {
+            const next = !todosAbertos;
+            const state = {};
+            filtrados.forEach(({ grupo }) => { state[grupo] = next; });
+            setGrupoAberto(state);
+          }}
+          style={{
+            padding: "8px 16px", borderRadius: 8, border: `1px solid ${C.borda}`,
+            background: "#fff", color: C.cinzaMedio, cursor: "pointer", fontSize: 12,
+            fontFamily: SERIF,
+          }}
+        >
+          {todosAbertos ? "Recolher todos" : "Expandir todos"}
+        </button>
+        <span style={{ fontSize: 12, color: C.cinzaClaro, marginLeft: "auto" }}>
+          {filtrados.length} grupo{filtrados.length !== 1 ? "s" : ""} · {filtrados.reduce((s, g) => s + g.crs.length, 0)} CRs
+        </span>
+      </div>
+
+      {/* Grupos */}
+      {filtrados.map(({ grupo, crs }) => {
+        const aberto = grupoAberto[grupo] !== false;
+        // Unique index values for this group
+        const indices = [...new Set(crs.map(d => d.indiceContratual).filter(Boolean))];
+        return (
+          <div key={grupo} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.borda}`, overflow: "hidden" }}>
+            {/* Header do grupo */}
+            <div
+              onClick={() => toggleGrupo(grupo)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
+                cursor: "pointer", borderBottom: aberto ? `1px solid ${C.borda}` : "none",
+                background: aberto ? C.azulClaro : "#f8fafb",
+                transition: "background 0.15s",
+              }}
+            >
+              <span style={{ fontSize: 13, color: C.azul, transition: "transform 0.15s", display: "inline-block", transform: aberto ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: C.cinzaEscuro, flex: 1 }}>{grupo}</span>
+              <span style={{ fontSize: 12, color: C.cinzaClaro, marginLeft: 8, whiteSpace: "nowrap" }}>{crs.length} CR{crs.length !== 1 ? "s" : ""}</span>
+            </div>
+
+            {/* Tabela */}
+            {aberto && (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, textAlign: "center" }}>CR</th>
+                      <th style={{ ...thStyle, textAlign: "left", minWidth: 240 }}>Descrição</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Mês Reajuste</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Índice Contratual</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Data Base CCT</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Cl. Produtividade</th>
+                      <th style={{ ...thStyle, textAlign: "center" }}>Sindicato</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crs.map((d, i) => (
+                      <tr key={d.cr || i} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                        <td style={{ ...tdStyle("center"), fontWeight: 700, color: C.azul, fontFamily: "monospace", fontSize: 12 }}>{d.cr}</td>
+                        <td style={{ ...tdStyle("left"), color: C.cinzaEscuro, fontWeight: 500 }}>{d.descricaoCR || "—"}</td>
+                        <td style={tdStyle("center")}>{d.mesVigencia || "—"}</td>
+                        <td style={{ ...tdStyle("center"), fontWeight: 600, color: C.cinzaEscuro }}>{d.indiceContratual || "—"}</td>
+                        <td style={tdStyle("center")}>{d.dataBaseCCT || "—"}</td>
+                        <td style={{ ...tdStyle("center") }}>
+                          {d.clausulaProdutividade && d.clausulaProdutividade !== "N/A" && String(d.clausulaProdutividade) !== "0" ? (
+                            <span style={{
+                              display: "inline-block", padding: "2px 8px", borderRadius: 4,
+                              background: C.verdeClaro, color: C.verde,
+                              fontWeight: 600, fontSize: 12,
+                            }}>
+                              {pctFmt(d.clausulaProdutividade)}
                             </span>
-                          ):"—"}
+                          ) : (
+                            <span style={{ color: C.cinzaClaro, fontSize: 12 }}>N/A</span>
+                          )}
                         </td>
-                        <td style={{padding:"5px 12px",textAlign:"center"}}>
-                          <InlineSelect value={cr.tipo} options={TIPO_G} onChange={v=>editRow(cr._id,"tipo",v)}/>
-                        </td>
-                        <td style={{padding:"5px 12px",textAlign:"center"}}>
-                          <InlineSelect value={cr.status} options={STATUS_G} colorMap={STATUS_COR}
-                            onChange={v=>editRow(cr._id,"status",v)}/>
-                        </td>
+                        <td style={{ ...tdStyle("center"), fontSize: 12 }}>{d.sindicato || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            )}
+          </div>
+        );
+      })}
 
-      {/* Save status toast */}
-      {(saving||saveMsg)&&(
-        <div style={{position:"fixed",bottom:80,right:24,zIndex:400,
-          background:saving?"#1E293B":saveMsg?.ok?"#16A34A":"#DC2626",
-          color:"#fff",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:600,
-          boxShadow:"0 4px 12px rgba(0,0,0,.2)"}}>
-          {saving?"Salvando na planilha...":saveMsg?.text}
+      {filtrados.length === 0 && (
+        <div style={{ textAlign: "center", padding: 60, color: C.cinzaClaro }}>
+          Nenhum resultado para "{busca}"
         </div>
       )}
     </div>
   );
-}
-
-// ─── PRODUTIVIDADE (baseada no app original) ──────────────────────────────────
-const CAT_COM   = ["Reajuste","Renovação","Up Selling","Defesa de Território","Alteração de Escopo","Outros"];
-const CAT_COM_C = { "Reajuste":"#7C3AED","Renovação":"#0891B2","Up Selling":"#059669","Defesa de Território":"#D97706","Alteração de Escopo":"#0369A1","Outros":"#6B7280" };
-const CAT_ENT_C = { "PEC":"#0369A1","Abertura de Custo":"#059669","Proposta Comercial":"#D97706","Carta de Reajuste":"#7C3AED","Notificação de Reajuste":"#DC2626","Revisão de Escopo":"#0891B2" };
-const SIN_C2    = { verde:"#16A34A",amarelo:"#D97706",vermelho:"#DC2626" };
-const SIN_BG2   = { verde:"#DCFCE7",amarelo:"#FEF9C3",vermelho:"#FEE2E2" };
-const SIN_LB2   = { verde:"Boa Negociação",amarelo:"Moderada",vermelho:"Difícil" };
-const COLORS2   = { MARIANA:"#7C3AED",WILDER:"#0369A1",GIOVANNI:"#059669",CARLA:"#D97706",DARLAN:"#DC2626" };
-
-const fmtPct2 = v => {
-  if (v==null||v===""||isNaN(v)) return "—";
-  const n = parseFloat(v);
-  if (n===0) return "—";
-  // If value > 1, it's already in % form (e.g. 6.86 = 6.86%)
-  // If value <= 1, it's decimal (e.g. 0.0686 = 6.86%)
-  const pct = n > 1 ? n : n * 100;
-  return `${pct.toFixed(2)}%`;
 };
 
-// Reprocessa dados de produtividade com colunas corretas
-const processProdFull = raw => {
-  if (!raw?.length) return [];
-  const headers = Object.keys(raw[0]);
-  const normalize = s => s.toUpperCase().replace(/\s+/g," ").trim()
-    .replace(/[ÁÀÃÂ]/g,"A").replace(/[ÉÊ]/g,"E").replace(/[Í]/g,"I")
-    .replace(/[ÓÕÔ]/g,"O").replace(/[Ú]/g,"U").replace(/[Ç]/g,"C");
-  const col = (...kws) => headers.find(k => kws.some(kw => normalize(k).includes(normalize(kw)))) || null;
-  const val = (r, ...kws) => { const k=col(...kws); return k ? (r[k]??"") : ""; };
-
-  // Agrupa por proposta base para pegar última revisão
-  const propBase = np => (np||"").toString().trim().replace(/\s*[-–]?\s*rev\.?\s*[\d]+$/i,"").trim();
-  const byProp = {};
-  raw.forEach((r,i) => {
-    const np  = val(r,"Nº Proposta","N PROPOSTA").toString().trim();
-    const rev = parseInt(val(r,"Nº da Revisão","REVISÃO","REVISAO"))||0;
-    const key = `${val(r,"Grupo Cliente")}||${propBase(np)}`;
-    if (!byProp[key] || rev > byProp[key].rev) byProp[key] = {r, rev, i};
+const SecaoClientes = ({ dados, onUpdate, setToast }) => {
+  const [justificativas, setJustificativas] = useState(() => {
+    const m = {};
+    dados.forEach(d => { if (d.obs) m[d.cr] = d.obs; });
+    return m;
   });
-  // Marca quais são última revisão
-  const ultimasIdx = new Set(Object.values(byProp).map(x=>x.i));
+  const [editando, setEditando] = useState(null);
+  const [textoEdit, setTextoEdit] = useState("");
 
-  return raw.map((r,i) => {
-    const respF = val(r,"Responsável Farmer","RESP. FARMER").toString().trim();
-    const respH = val(r,"Responsável Hunter","RESP. HUNTER").toString().trim();
-    const responsavel = matchPessoa(respF) || matchPessoa(respH);
-    if (!responsavel) return null;
-
-    const tipo    = val(r,"Tipo de Negócio","TIPO DE NEGOCIO","TIPO DE PROPOSTA").toString().trim();
-    const obs     = val(r,"OBS.","OBS").toString().trim();
-    const semana  = val(r,"Semana","SEMANA").toString().trim();
-    const nRev    = parseInt(val(r,"Nº da Revisão","REVISÃO","REVISAO"))||0;
-    const isRevisao = nRev > 0;
-    const isUltima  = ultimasIdx.has(i);
-
-    const valAtual  = num(val(r,"Valor Contrato Atual"));
-    const valPleito = num(val(r,"Valor Final / Pleito","Valor Proposta"));
-    const isSim = v => ["SIM","S"].includes((v||"").toString().toUpperCase().trim());
-
-    const found = new Set();
-    if(isSim(val(r,"Fez PEC?")))                         found.add("PEC");
-    if(isSim(val(r,"Fez Abertura de Custo?")))           found.add("Abertura de Custo");
-    if(isSim(val(r,"Fez Proposta Comercial?")))          found.add("Proposta Comercial");
-    if(isSim(val(r,"Fez Carta de Reajuste?")))           found.add("Carta de Reajuste");
-    if(isSim(val(r,"Fez Notificação de Reajuste?")))     found.add("Notificação de Reajuste");
-
-    return {
-      responsavel, isRevisao, isUltima, nRev,
-      nProposta:    val(r,"Nº Proposta","N PROPOSTA").toString().trim(),
-      grupoCliente: val(r,"Grupo Cliente").toString().trim(),
-      unidade:      val(r,"Unidade / Filial","UNIDADE","FILIAL").toString().trim(),
-      escopo:       val(r,"Escopo Atuação","ESCOPO").toString().trim(),
-      mes:          val(r,"Mês","MES").toString().trim(),
-      semana,
-      tipo,
-      obs,
-      status:       val(r,"Status","STATUS").toString().trim(),
-      sinalizacao:  matchSin(val(r,"Semáforo (Dificuldade)","Semáforo","Sinaliz")),
-      valAtual, valPleito,
-      diferenca:    valPleito - valAtual,
-      pctReaj:      num(val(r,"% Reajuste Contrato")),
-      pctPleito:    num(val(r,"% Reajuste Pleito")),
-      aprovPct:     num(val(r,"% Reajuste Aceito")),
-      aprovR:       num(val(r,"Valor Proposta")),
-      entregaveis:  found.size ? [...found] : [],
-      categoria:    matchCatP("", tipo),
-    };
-  }).filter(Boolean);
-};
-
-// Filtra apenas última revisão por proposta para cálculos de valor
-const ultimasRevisoes = rows => rows.filter(r => r.isUltima);
-
-const TagP = ({label, color}) => (
-  <span style={{fontSize:9,padding:"2px 7px",background:`${color}15`,color,
-                border:`1px solid ${color}30`,whiteSpace:"nowrap",borderRadius:4,fontWeight:500}}>{label}</span>
-);
-
-const BarP = ({p, color}) => (
-  <div style={{flex:1,height:5,background:"#F1F4F8",borderRadius:3,overflow:"hidden"}}>
-    <div style={{width:`${Math.min(p,100)}%`,height:"100%",background:color,borderRadius:3,transition:"width .4s"}}/>
-  </div>
-);
-
-function SecaoProdutividade({ rawData, subPag, setSubPag, filtros }) {
-  const data = React.useMemo(() => processProdFull(rawData), [rawData]);
-  const [fCat,    setFCat]    = useState("Todas");
-  const [obsOpen, setObsOpen] = useState(null);
-
-  // Usa filtros do menu lateral
-  const fResp = filtros?.fResp || "Todos";
-  const fStat = filtros?.fStat || "Todos";
-  const fMes  = filtros?.fMes  || "Todos";
-  const fSem  = filtros?.fSem  || "Todas";
-  const fEsc  = filtros?.fEsc  || "Todos";
-  const fSin  = filtros?.fSin  || "Todos";
-  const fTipo = filtros?.fTipo || "Todos";
-
-  const ativs = data.filter(r => r.isUltima);
-  const revs  = data.filter(r => r.isRevisao);
-
-  // Opções de filtro derivadas dos dados
-  const mesesDisp   = ORDEM_MES.filter(m => data.some(r => r.mes && m.toUpperCase().startsWith(r.mes.toUpperCase().substring(0,3))));
-  const semanasDisp = [...new Set(data.map(r=>r.semana).filter(Boolean))].sort();
-  const escoposDisp = [...new Set(data.map(r=>r.escopo).filter(Boolean))].sort();
-  const tiposDisp   = [...new Set(data.map(r=>r.tipo).filter(Boolean))].sort();
-
-  const applyAll = rows => {
-    let r = rows;
-    if (fMes  !== "Todos") r = r.filter(x => x.mes && fMes.toUpperCase().startsWith(x.mes.toUpperCase().substring(0,3)));
-    if (fSem  !== "Todas") r = r.filter(x => x.semana === fSem);
-    if (fResp !== "Todos") r = r.filter(x => x.responsavel === fResp);
-    if (fEsc  !== "Todos") r = r.filter(x => x.escopo === fEsc);
-    if (fSin  !== "Todos") r = r.filter(x => x.sinalizacao === fSin);
-    if (fTipo !== "Todos") r = r.filter(x => x.tipo === fTipo);
-    if (fStat === "Aprovado")      r = r.filter(x => x.status.toUpperCase().includes("APROVADO"));
-    else if (fStat === "Em Negociação") r = r.filter(x => x.status.toUpperCase().includes("NEGOCI"));
-    else if (fStat === "Recusado") r = r.filter(x => x.status.toUpperCase().includes("RECUS"));
-    return r;
-  };
-  const applyMesSem = rows => {
-    let r = rows;
-    if (fMes !== "Todos") r = r.filter(x => x.mes && fMes.toUpperCase().startsWith(x.mes.toUpperCase().substring(0,3)));
-    if (fSem !== "Todas") r = r.filter(x => x.semana === fSem);
-    return r;
-  };
-  const applyStatus = rows => {
-    if (fStat === "Aprovado")      return rows.filter(r => r.status.toUpperCase().includes("APROVADO"));
-    if (fStat === "Em Negociação") return rows.filter(r => r.status.toUpperCase().includes("NEGOCI"));
-    if (fStat === "Recusado")      return rows.filter(r => r.status.toUpperCase().includes("RECUS"));
-    return rows;
-  };
-  const filterRows = rows => applyAll(rows);
-
-  const clienteStats = () => {
-    const base = applyAll(data);
-    const by = {};
-    for (const r of base) {
-      const g = (r.grupoCliente||"").trim();
-      if (!g || g.length < 2) continue;
-      if (!by[g]) by[g] = {rows:[],sin:null};
-      by[g].rows.push(r);
-      if (!by[g].sin && r.sinalizacao) by[g].sin = r.sinalizacao;
+  const salvarObs = async (cr, valor) => {
+    try {
+      const r = await fetch(UPDATE_API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cr, campo: "Observações", valor }) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      onUpdate(cr, "Observações", valor);
+      setToast("Observação salva");
+    } catch (e) {
+      setToast("Erro ao salvar: " + e.message);
     }
-    return Object.entries(by).map(([g,{rows,sin}]) => {
-      const ults = rows.filter(r=>r.isUltima);
-      const wR = ults.filter(r=>r.pctReaj>0), wA = ults.filter(r=>r.aprovPct>0);
-      const avg = (arr,fn) => arr.length ? arr.reduce((s,r)=>s+fn(r),0)/arr.length : null;
-      return {
-        grupo:g, rows, sin,
-        avgReaj:   avg(wR, r=>r.pctReaj),    // decimal (0.0756)
-        avgPleito: avg(wR, r=>r.pctPleito),  // decimal
-        avgAprov:  avg(wA, r=>r.aprovPct),   // decimal
-        totalAtual:  ults.reduce((s,r)=>s+r.valAtual,0),
-        totalPleito: ults.reduce((s,r)=>s+r.valPleito,0),
-        totalDif:    ults.reduce((s,r)=>s+r.diferenca,0),
-      };
-    }).sort((a,b) => b.rows.length - a.rows.length);
   };
 
-  const contarEnt = rows => {
-    const c = {}; let t = 0;
-    for (const r of rows) for (const e of r.entregaveis) { c[e]=(c[e]||0)+1; t++; }
-    return Object.entries(c).map(([cat,qtd]) => ({cat,qtd,p:t?Math.round(qtd/t*100):0})).sort((a,b)=>b.qtd-a.qtd);
+  const hoje = new Date();
+
+  const clientes = useMemo(() => {
+    const map = {};
+    dados.forEach(d => {
+      const g = d.grupoCliente || "Sem Grupo";
+      if (!map[g]) map[g] = { grupo: g, crs: [] };
+      map[g].crs.push(d);
+    });
+
+    return Object.values(map).map(({ grupo, crs }) => {
+      const concluidos = crs.filter(d => parseData(d.dataAprov));
+      const emAberto = crs.filter(d => parseData(d.inicioNeg) && !parseData(d.dataAprov));
+
+      // Tempo médio dos concluídos
+      const tempos = concluidos
+        .map(d => diasEntre(parseData(d.inicioNeg), parseData(d.dataAprov)))
+        .filter(v => v !== null && v >= 0);
+      const mediaDias = tempos.length > 0 ? Math.round(tempos.reduce((a, b) => a + b, 0) / tempos.length) : null;
+
+      // Maior tempo em aberto
+      const maiorAberto = emAberto.length > 0
+        ? Math.max(...emAberto.map(d => diasEntre(parseData(d.inicioNeg), hoje)).filter(v => v !== null))
+        : null;
+
+      // CRs individuais com tempo
+      const detalhes = crs
+        .filter(d => parseData(d.inicioNeg))
+        .map(d => {
+          const inicio = parseData(d.inicioNeg);
+          const aprov = parseData(d.dataAprov);
+          const dias = diasEntre(inicio, aprov || hoje);
+          return { cr: d.cr, descri: d.descri, mes: d.mes, gerente: d.gerente, dias, concluido: !!aprov, status: d.status || statusTemporal(d) || "—" };
+        })
+        .sort((a, b) => b.dias - a.dias);
+
+      // Semáforo do grupo baseado no maior tempo em aberto ou média
+      const ref = maiorAberto ?? mediaDias ?? 0;
+      const nivel = ref >= 60 ? "critico" : ref >= 30 ? "atencao" : "ok";
+
+      return { grupo, crs: detalhes, total: crs.length, concluidos: concluidos.length, emAberto: emAberto.length, mediaDias, maiorAberto, nivel };
+    }).sort((a, b) => {
+      const ord = { critico: 0, atencao: 1, ok: 2 };
+      return ord[a.nivel] - ord[b.nivel] || a.grupo.localeCompare(b.grupo);
+    });
+  }, [dados]);
+
+  const semCor = { critico: { color: C.vermelho, bg: C.vermelhoClaro, label: "Crítico" }, atencao: { color: C.laranja, bg: C.laranjaClaro, label: "Atenção" }, ok: { color: C.verde, bg: C.verdeClaro, label: "Ok" } };
+  const [expandido, setExpandido] = useState({});
+
+  const salvarJust = (grupo) => {
+    setJustificativas(j => ({ ...j, [grupo]: textoEdit }));
+    setEditando(null);
   };
 
-  const PillP = ({label, active, color, onClick}) => (
-    <button onClick={onClick} style={{
-      padding:"4px 12px", borderRadius:99, border:"none", cursor:"pointer",
-      fontFamily:"inherit", fontSize:11, fontWeight:500, transition:"all .15s",
-      background: active ? (color||DARK) : "#F1F4F8",
-      color:      active ? "#fff" : "#64748B",
-      whiteSpace:"nowrap",
-    }}>{label}</button>
-  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Legenda */}
+      <div style={{ display: "flex", gap: 16, padding: "10px 16px", background: "#fff", borderRadius: 8, border: `1px solid ${C.borda}`, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.cinzaClaro, fontWeight: 500 }}>Semáforo baseado no maior tempo em negociação aberta:</span>
+        {[["critico","≥ 60 dias"],["atencao","30–59 dias"],["ok","< 30 dias"]].map(([n, l]) => (
+          <div key={n} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: semCor[n].color, boxShadow: `0 0 0 3px ${semCor[n].bg}` }} />
+            <span style={{ fontSize: 11, color: C.cinzaMedio }}><b>{semCor[n].label}</b> {l}</span>
+          </div>
+        ))}
+      </div>
 
+      {/* Cards por cliente */}
+      {clientes.map(({ grupo, crs, total, concluidos, emAberto, mediaDias, maiorAberto, nivel }) => {
+        const s = semCor[nivel];
+        const aberto = expandido[grupo] !== false;
+        const just = justificativas[grupo] || "";
 
-
-  // ── VISÃO GERAL ──────────────────────────────────────────────────────────────
-  if (subPag === "visao") {
-    const base      = applyAll(ativs);
-    const cStats    = clienteStats();
-    const scopeCat  = cat => base.filter(r => r.categoria === cat);
-
-    return (
-      <div>
-
-
-        {/* KPIs */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20}}>
-          {[
-            {l:"Propostas",       v:applyAll(data).filter(r=>!r.isRevisao).length},
-            {l:"Revisões",        v:applyAll(data).filter(r=>r.isRevisao).length},
-            {l:"Contrato Atual",  v:brl(base.reduce((s,r)=>s+r.valAtual,0))},
-            {l:"Valor c/ Pleito", v:brl(base.reduce((s,r)=>s+r.valPleito,0))},
-            {l:"Diferença",       v:brl(base.reduce((s,r)=>s+r.diferenca,0)), hl:true},
-          ].map(i=>(
-            <div key={i.l} style={{background:i.hl?"#F0FDF4":"#F8FAFC",borderRadius:10,
-                                    padding:"14px 16px",boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                    borderLeft:`3px solid ${i.hl?"#16A34A":"#E2E8F0"}`}}>
-              <div style={{fontSize:10,color:"#94A3B8",marginBottom:4}}>{i.l}</div>
-              <div style={{fontSize:20,fontWeight:700,color:i.hl?"#16A34A":DARK}}>{i.v}</div>
+        return (
+          <div key={grupo} style={{ background: "#fff", borderRadius: 10, border: `1px solid ${C.borda}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)", borderLeft: `4px solid ${s.color}` }}>
+            {/* Cabeçalho */}
+            <div onClick={() => setExpandido(p => ({ ...p, [grupo]: !aberto }))}
+              style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", userSelect: "none" }}>
+              {/* Semáforo */}
+              <div style={{ width: 14, height: 14, borderRadius: "50%", background: s.color, flexShrink: 0, boxShadow: `0 0 0 4px ${s.bg}` }} />
+              <span style={{ fontWeight: 700, color: C.cinzaEscuro, fontSize: 13, flex: 1 }}>{grupo}</span>
+              {/* Stats rápidos */}
+              <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: C.cinzaClaro }}>Total CRs</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.cinzaEscuro }}>{total}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: C.cinzaClaro }}>Concluídos</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.verde }}>{concluidos}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: C.cinzaClaro }}>Em aberto</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: emAberto > 0 ? s.color : C.cinzaMedio }}>{emAberto}</div>
+                </div>
+                {mediaDias !== null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: C.cinzaClaro }}>Média concl.</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.cinzaMedio }}>{mediaDias}d</div>
+                  </div>
+                )}
+                {maiorAberto !== null && (
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: C.cinzaClaro }}>Maior aberto</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{maiorAberto}d</div>
+                  </div>
+                )}
+              </div>
+              <span style={{ color: C.cinzaClaro, fontSize: 10, marginLeft: 8 }}>{aberto ? "▼" : "▶"}</span>
             </div>
-          ))}
-        </div>
 
-        {/* Analistas */}
-        <div style={{fontSize:11,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",
-                     color:"#94A3B8",marginBottom:12}}>Analistas</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:24}}>
-          {["Mariana","Wilder","Giovanni"].map(p => {
-            const allP  = applyAll(data).filter(r=>r.responsavel===p);
-            const sp    = allP.filter(r=>r.isUltima);
-            const revP  = allP.filter(r=>r.isRevisao);
-            const aprov = allP.filter(r=>r.status.toUpperCase().includes("APROVADO"));
-            const cor   = COR_P[p]||"#7C3AED";
-            return (
-              <div key={p} style={{background:`${cor}08`,borderRadius:12,padding:18,
-                                    borderTop:`3px solid ${cor}`,boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                    border:`1px solid ${cor}20`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-                  <div>
-                    <div style={{fontSize:10,color:"#94A3B8",marginBottom:2}}>Analista</div>
-                    <div style={{fontSize:16,fontWeight:700,color:cor}}>{p}</div>
-                    <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>
-                      {allP.filter(r=>!r.isRevisao).length} atividades · {revP.length} revisões
-                    </div>
-                  </div>
-                  <div style={{textAlign:"right",fontSize:11}}>
-                    <div style={{color:"#16A34A"}}>✓ {aprov.length} aprovados</div>
-                    <div style={{color:"#94A3B8",marginTop:2}}>{revP.length} revisões</div>
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
-                  {[
-                    {l:"Contrato Atual", v:brl(sp.reduce((s,r)=>s+r.valAtual,0))},
-                    {l:"Com Pleito",     v:brl(sp.reduce((s,r)=>s+r.valPleito,0))},
-                    {l:"Diferença",      v:brl(sp.reduce((s,r)=>s+r.diferenca,0)), hl:true},
-                  ].map(k=>(
-                    <div key={k.l} style={{background:"#fff",borderRadius:8,padding:"7px 8px",
-                                            border:"1px solid #E2E8F0"}}>
-                      <div style={{fontSize:9,color:"#94A3B8",marginBottom:2}}>{k.l}</div>
-                      <div style={{fontSize:11,fontWeight:600,color:k.hl?"#16A34A":DARK}}>{k.v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{borderTop:"1px solid #F1F4F8",paddingTop:10}}>
-                  <div style={{fontSize:9,color:"#94A3B8",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Por Tipo</div>
-                  {[...new Set(allP.map(r=>r.tipo).filter(Boolean))].sort().map(tipo=>{
-                    const d = allP.filter(r=>r.tipo===tipo);
-                    if(!d.length) return null;
-                    return(
-                      <div key={tipo} style={{display:"flex",justifyContent:"space-between",
-                                              alignItems:"center",marginBottom:6,padding:"3px 0"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <div style={{width:7,height:7,borderRadius:99,
-                                       background:TIPO_COR_P[tipo]||CAT_COM_C[tipo]||cor}}/>
-                          <span style={{fontSize:11,color:"#64748B"}}>{tipo}</span>
-                        </div>
-                        <span style={{fontSize:12,fontWeight:600,color:cor,minWidth:24,textAlign:"right"}}>
-                          {d.length}×
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Liderança */}
-        <div style={{fontSize:11,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",
-                     color:"#94A3B8",marginBottom:12}}>Liderança</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,marginBottom:24}}>
-          {["Carla","Darlan"].map(p=>{
-            const allP = applyAll(data).filter(r=>r.responsavel===p);
-            const sp   = allP.filter(r=>r.isUltima);
-            const revP = allP.filter(r=>r.isRevisao);
-            const aprov= allP.filter(r=>r.status.toUpperCase().includes("APROVADO"));
-            const cor  = COR_P[p]||"#D97706";
-            const porCat = [...new Set(allP.map(r=>r.tipo).filter(Boolean))].map(cat=>({cat,n:allP.filter(r=>r.tipo===cat).length})).filter(x=>x.n>0).sort((a,b)=>b.n-a.n);
-            return (
-              <div key={p} style={{background:`${cor}08`,borderRadius:12,padding:18,
-                                    borderTop:`3px solid ${cor}`,boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                    border:`1px solid ${cor}20`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-                  <div>
-                    <div style={{fontSize:10,color:"#94A3B8",marginBottom:2}}>Liderança</div>
-                    <div style={{fontSize:16,fontWeight:700,color:cor}}>{p}</div>
-                    <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{allP.length} interações · {revP.length} revisões</div>
-                  </div>
-                  <div style={{textAlign:"right",fontSize:11}}>
-                    <div style={{color:"#16A34A"}}>✓ {aprov.length} aprovados</div>
-                    <div style={{color:"#94A3B8",marginTop:2}}>{revP.length} revisões</div>
-                  </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
-                  {[
-                    {l:"Interações",  v:sp.length},
-                    {l:"Atual",       v:brl(sp.reduce((s,r)=>s+r.valAtual,0))},
-                    {l:"Com Pleito",  v:brl(sp.reduce((s,r)=>s+r.valPleito,0))},
-                    {l:"Diferença",   v:brl(sp.reduce((s,r)=>s+r.diferenca,0)), hl:true},
-                  ].map(k=>(
-                    <div key={k.l} style={{background:"#fff",borderRadius:8,padding:"7px 8px",
-                                            border:"1px solid #E2E8F0"}}>
-                      <div style={{fontSize:9,color:"#94A3B8",marginBottom:2}}>{k.l}</div>
-                      <div style={{fontSize:11,fontWeight:600,color:k.hl?"#16A34A":DARK}}>{k.v}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {porCat.map(({cat,n})=>(
-                    <TagP key={cat} label={`${cat} ${n}×`} color={CAT_COM_C[cat]||TIPO_COR_P[cat]||"#6B7280"}/>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Semáforo */}
-        <div style={{fontSize:11,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",
-                     color:"#94A3B8",marginBottom:12}}>Semáforo de Clientes</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14}}>
-          {["verde","amarelo","vermelho"].map(sin=>{
-            const list=cStats.filter(c=>c.sin===sin);
-            return(
-              <div key={sin} style={{background:`${SIN_C2[sin]}08`,borderRadius:12,padding:16,
-                                      borderTop:`3px solid ${SIN_C2[sin]}`,
-                                      boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                      border:`1px solid ${SIN_C2[sin]}25`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <div style={{width:9,height:9,borderRadius:99,background:SIN_C2[sin]}}/>
-                    <span style={{fontSize:13,fontWeight:600,color:SIN_C2[sin]}}>{SIN_LB2[sin]}</span>
-                  </div>
-                  <div style={{fontSize:22,fontWeight:800,color:SIN_C2[sin]}}>{list.length}</div>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                  {list.slice(0,6).map(c=>{
-                    const unidades = new Set(c.rows.filter(r=>r.isUltima).map(r=>r.unidade||r.grupoCliente));
-                    return(
-                    <div key={c.grupo} style={{display:"flex",justifyContent:"space-between",
-                      alignItems:"center",padding:"5px 10px",background:SIN_BG2[sin],borderRadius:6}}>
-                      <span style={{fontSize:11,color:SIN_C2[sin],fontWeight:500}}>{c.grupo}</span>
-                      <span style={{fontSize:10,color:SIN_C2[sin],fontWeight:600,
-                        background:`${SIN_C2[sin]}20`,padding:"1px 6px",borderRadius:99}}>
-                        {unidades.size} contrato{unidades.size!==1?"s":""}
-                      </span>
-                    </div>
-                    );
-                  })}
-                  {list.length>6&&<div style={{fontSize:10,color:"#94A3B8",textAlign:"center",paddingTop:3}}>+{list.length-6} grupos</div>}
-                  {!list.length&&<div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"10px 0"}}>Nenhum classificado</div>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // ── ESFORÇO ──────────────────────────────────────────────────────────────────
-  if (subPag === "esforco") {
-    const base     = applyAll(data);
-    const analBase = base;
-    const entGeral = contarEnt(analBase);
-    return (
-      <div>
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:600,letterSpacing:".06em",color:"#94A3B8",
-                       textTransform:"uppercase",marginBottom:4}}>Esforço Operacional</div>
-          <div style={{fontSize:20,fontWeight:700,color:DARK}}>
-            Mesa de <span style={{color:"#2563EB"}}>Trabalho</span>
-          </div>
-          <div style={{fontSize:12,color:"#94A3B8",marginTop:2}}>{analBase.length} interações no período</div>
-        </div>
-
-        {/* Distribuição geral */}
-        <div style={{background:"#fff",borderRadius:12,padding:18,marginBottom:16,
-                     boxShadow:"0 1px 4px rgba(0,0,0,.07)"}}>
-          <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",textTransform:"uppercase",
-                       letterSpacing:".06em",marginBottom:14}}>Distribuição do Time</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            {entGeral.map(({cat,qtd,p})=>(
-              <div key={cat} style={{padding:"10px 14px",background:"#F8FAFC",borderRadius:8,
-                                     borderLeft:`4px solid ${CAT_ENT_C[cat]||"#94A3B8"}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                  <span style={{fontSize:12,fontWeight:500,color:CAT_ENT_C[cat]||DARK}}>{cat}</span>
-                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                    <span style={{fontSize:11,color:"#94A3B8"}}>{qtd}×</span>
-                    <span style={{fontSize:15,fontWeight:700,color:DARK}}>{p}%</span>
-                  </div>
-                </div>
-                <BarP p={p} color={CAT_ENT_C[cat]||"#94A3B8"}/>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Por analista */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14}}>
-          {["Mariana","Wilder","Giovanni"].map(p=>{
-            const rows  = applyAll(data).filter(r=>r.responsavel===p);
-            const ents  = contarEnt(rows);
-            const cor   = COR_P[p]||"#7C3AED";
-            return(
-              <div key={p} style={{background:`${cor}08`,borderRadius:12,padding:18,
-                                    borderTop:`3px solid ${cor}`,boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                    border:`1px solid ${cor}20`}}>
-                <div style={{marginBottom:14}}>
-                  <div style={{fontSize:10,color:"#94A3B8",marginBottom:2}}>Analista</div>
-                  <div style={{fontSize:16,fontWeight:700,color:cor}}>{p}</div>
-                  <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>
-                    {rows.filter(r=>!r.isRevisao).length} atividades · {rows.filter(r=>r.isRevisao).length} revisões
-                  </div>
-                </div>
-                {!ents.length&&<div style={{color:"#94A3B8",fontSize:12}}>Sem checklist preenchido</div>}
-                {ents.map(({cat,qtd,p:pr})=>(
-                  <div key={cat} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                      <div style={{display:"flex",alignItems:"center",gap:5}}>
-                        <div style={{width:8,height:8,borderRadius:99,background:CAT_ENT_C[cat]||"#94A3B8"}}/>
-                        <span style={{fontSize:12,color:"#64748B"}}>{cat}</span>
-                      </div>
-                      <div style={{display:"flex",gap:8}}>
-                        <span style={{fontSize:11,color:"#94A3B8"}}>{qtd}×</span>
-                        <span style={{fontSize:12,fontWeight:600,color:cor}}>{pr}%</span>
-                      </div>
-                    </div>
-                    <BarP p={pr} color={cor}/>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // ── POR CLIENTE ───────────────────────────────────────────────────────────────
-  if (subPag === "clientes") {
-    const cStats  = clienteStats();
-    const filtered = fSin==="Todos" ? cStats : cStats.filter(c=>c.sin===fSin);
-    return (
-      <div>
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
-          <span style={{fontSize:12,color:"#94A3B8"}}>{filtered.length} clientes</span>
-        </div>
-
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {filtered.map(({grupo,rows,sin,avgReaj,avgPleito,avgAprov,totalAtual,totalPleito,totalDif})=>{
-            const filtRows = fResp==="Todos" ? rows : rows.filter(r=>r.responsavel===fResp);
-            return(
-              <div key={grupo} style={{background:"#fff",borderRadius:12,overflow:"hidden",
-                                        boxShadow:"0 1px 4px rgba(0,0,0,.07)",
-                                        borderLeft:`4px solid ${sin?SIN_C2[sin]:"#E2E8F0"}`}}>
-                <div style={{padding:"12px 18px",display:"flex",justifyContent:"space-between",
-                              alignItems:"flex-start",flexWrap:"wrap",gap:10}}>
-                  <div>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                      <span style={{fontSize:14,fontWeight:700,color:DARK}}>{grupo}</span>
-                      {sin
-                        ?<span style={{fontSize:10,padding:"2px 8px",background:SIN_BG2[sin],
-                            color:SIN_C2[sin],borderRadius:99,fontWeight:600}}>{SIN_LB2[sin]}</span>
-                        :<span style={{fontSize:10,padding:"2px 8px",background:"#F1F4F8",
-                            color:"#94A3B8",borderRadius:99}}>Sem classificação</span>}
-                    </div>
-                    <div style={{fontSize:10,color:"#94A3B8"}}>
-                      {filtRows.length} atividades · {filtRows.filter(r=>r.status.toUpperCase().includes("APROVADO")).length} aprovadas
-                    </div>
-                  </div>
-                  <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-                    {[
-                      {l:"Total Atual",   v:totalAtual>0?brl(totalAtual):"—"},
-                      {l:"Total Pleito",  v:totalPleito>0?brl(totalPleito):"—"},
-                      {l:"Ganho",         v:totalDif>0?brl(totalDif):"—",   c:"#16A34A"},
-                      {l:"% Reaj.",       v:avgReaj!=null?fmtPct2(avgReaj):"—"},
-                      {l:"% Pleito",      v:avgPleito!=null?fmtPct2(avgPleito):"—"},
-                      {l:"% Aceito",      v:avgAprov!=null?fmtPct2(avgAprov):"—", c:avgAprov!=null?"#16A34A":undefined},
-                    ].map(i=>(
-                      <div key={i.l} style={{textAlign:"right"}}>
-                        <div style={{fontSize:9,color:"#94A3B8",marginBottom:2,textTransform:"uppercase",letterSpacing:".04em"}}>{i.l}</div>
-                        <div style={{fontSize:13,fontWeight:600,color:i.c||DARK}}>{i.v}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Tabela interna de unidades — uma linha por unidade (última revisão) */}
-                {filtRows.length>0&&(()=>{
-                  // Agrupa por unidade, pega última revisão
-                  const byUnit = {};
-                  filtRows.forEach(r => {
-                    const key = (r.unidade||r.cliente||"").trim();
-                    if (!byUnit[key]) byUnit[key] = {rows:[],last:null};
-                    byUnit[key].rows.push(r);
-                    if (!byUnit[key].last||r.nRev>byUnit[key].last.nRev) byUnit[key].last=r;
-                  });
-                  const unitRows = Object.values(byUnit).map(({rows,last})=>({
-                    ...last, totalRevs: rows.filter(x=>x.nRev>0).length
-                  })).sort((a,b)=>(a.unidade||"").localeCompare(b.unidade||""));
-                  return (
-                  <div style={{overflowX:"auto",borderTop:"1px solid #F1F4F8"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            {aberto && (
+              <div style={{ borderTop: `1px solid ${C.borda}` }}>
+                {/* Tabela de CRs */}
+                {crs.length > 0 && (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
-                        <tr style={{background:"#F8FAFC"}}>
-                          {["Unidade / Filial","Tipo","Rev.","Contrato Atual","Com Pleito","Ganho","% Reajuste","% Aceito","Status","Obs"].map(h=>(
-                            <th key={h} style={{textAlign:"left",padding:"7px 12px",fontSize:10,
-                              color:"#94A3B8",fontWeight:600,whiteSpace:"nowrap",
-                              borderBottom:"1px solid #E2E8F0"}}>{h}</th>
+                        <tr style={{ background: "#f8fafc" }}>
+                          {[
+                            { label: "CR",         align: "center" },
+                            { label: "Descrição",  align: "left"   },
+                            { label: "Status",     align: "center" },
+                            { label: "Dias",       align: "center" },
+                            { label: "Observação", align: "center" },
+                          ].map(({ label, align }) => (
+                            <th key={label} style={{ padding: "7px 12px", textAlign: align, color: C.cinzaClaro, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", borderBottom: `1px solid ${C.borda}` }}>{label}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {unitRows.map((r,i)=>{
-                          const isAprov=r.status.toUpperCase().includes("APROVADO");
-                          return(
-                            <tr key={i} style={{background:i%2===0?"#fff":"#FAFBFC",
-                                                borderTop:"1px solid #F1F4F8"}}>
-                              <td style={{padding:"7px 12px",fontWeight:500,color:DARK,whiteSpace:"nowrap"}}>{r.unidade}</td>
-                              <td style={{padding:"7px 12px"}}><TagP label={r.tipo||r.categoria} color={CAT_COM_C[r.categoria]||"#6B7280"}/></td>
-                              <td style={{padding:"7px 12px",textAlign:"center",
-                                color:r.totalRevs>0?"#7C3AED":"#94A3B8",fontWeight:r.totalRevs>0?600:400}}>
-                                {r.totalRevs||0}</td>
-                              <td style={{padding:"7px 12px",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.valAtual>0?brl(r.valAtual):"—"}</td>
-                              <td style={{padding:"7px 12px",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.valPleito>0?brl(r.valPleito):"—"}</td>
-                              <td style={{padding:"7px 12px",color:"#16A34A",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.diferenca>0?brl(r.diferenca):"—"}</td>
-                              <td style={{padding:"7px 12px",color:"#64748B",whiteSpace:"nowrap"}}>{r.pctReaj>0?fmtPct2(r.pctReaj):"—"}</td>
-                              <td style={{padding:"7px 12px",color:"#16A34A",whiteSpace:"nowrap"}}>{r.aprovPct>0?fmtPct2(r.aprovPct):"—"}</td>
-                              <td style={{padding:"7px 12px"}}>
-                                <span style={{fontSize:10,fontWeight:500,padding:"2px 7px",borderRadius:99,
-                                  background:isAprov?"#DCFCE7":"#FEF9C3",
-                                  color:isAprov?"#16A34A":"#D97706",whiteSpace:"nowrap"}}>{r.status}</span>
+                        {crs.map((row, i) => {
+                          const ds = row.dias >= 60 ? { color: C.vermelho } : row.dias >= 30 ? { color: C.laranja } : { color: C.verde };
+                          const stCor = STATUS_COR[row.status] || { color: C.cinzaMedio, bg: "#f0f0f0" };
+                          const obsKey = row.cr;
+                          const obsVal = justificativas[obsKey] || "";
+                          const confirmarObs = () => {
+                            setJustificativas(j => ({ ...j, [obsKey]: textoEdit }));
+                            setEditando(null);
+                            salvarObs(row.cr, textoEdit);
+                          };
+                          return (
+                            <tr key={row.cr + i} style={{ borderBottom: `1px solid #f0f4f7`, background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                              <td style={{ padding: "7px 12px", color: C.cinzaMedio, fontFamily: "monospace", fontSize: 11, textAlign: "center" }}>{row.cr}</td>
+                              <td style={{ padding: "7px 12px", color: C.cinzaEscuro, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.descri}</td>
+                              <td style={{ padding: "7px 12px", textAlign: "center" }}>
+                                <span style={{ padding: "2px 8px", borderRadius: 4, background: stCor.bg, color: stCor.color, fontSize: 11, fontWeight: 600 }}>{row.status}</span>
                               </td>
-                              <td style={{padding:"7px 12px"}}>
-                                {r.obs&&(
-                                  <button onClick={()=>setObsOpen(obsOpen===`${grupo}-${i}`?null:`${grupo}-${i}`)}
-                                    style={{fontSize:9,padding:"2px 7px",borderRadius:4,border:"1px solid #E2E8F0",
-                                      background:"#F8FAFC",color:"#64748B",cursor:"pointer",fontFamily:"inherit"}}>
-                                    OBS
-                                  </button>
-                                )}
-                                {obsOpen===`${grupo}-${i}`&&r.obs&&(
-                                  <div style={{position:"fixed",zIndex:9999,background:"#1E293B",color:"#F8FAFC",
-                                    padding:"10px 14px",borderRadius:8,fontSize:11,maxWidth:300,lineHeight:1.5,
-                                    boxShadow:"0 4px 16px rgba(0,0,0,.3)",top:"50%",left:"50%",
-                                    transform:"translate(-50%,-50%)",cursor:"pointer"}}
-                                    onClick={()=>setObsOpen(null)}>
-                                    {r.obs}
+                              <td style={{ padding: "7px 12px", textAlign: "center" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: ds.color }}>{row.concluido ? "✓ " : ""}{row.dias}d</span>
+                              </td>
+                              <td style={{ padding: "7px 12px", textAlign: "center", minWidth: 180 }}>
+                                {editando === obsKey ? (
+                                  <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                    <input autoFocus value={textoEdit} onChange={e => setTextoEdit(e.target.value)}
+                                      onKeyDown={e => { if (e.key === "Enter") confirmarObs(); if (e.key === "Escape") setEditando(null); }}
+                                      style={{ flex: 1, fontSize: 11, padding: "3px 7px", borderRadius: 4, border: `1.5px solid ${C.azul}`, outline: "none", fontFamily: "inherit" }} />
+                                    <button onClick={confirmarObs}
+                                      style={{ padding: "3px 8px", borderRadius: 4, background: C.azul, color: "#fff", border: "none", fontSize: 11, cursor: "pointer" }}>✓</button>
+                                  </div>
+                                ) : (
+                                  <div onClick={() => { setEditando(obsKey); setTextoEdit(obsVal); }}
+                                    style={{ fontSize: 11, color: obsVal ? C.cinzaEscuro : C.borda, cursor: "pointer", padding: "2px 6px", borderRadius: 4, border: `1px dashed transparent`, transition: "all 0.12s", textAlign: "left" }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = C.azul; e.currentTarget.style.background = C.azulClaro; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.background = "transparent"; }}>
+                                    {obsVal || "Adicionar observação…"}
                                   </div>
                                 )}
                               </td>
@@ -1268,398 +1217,413 @@ function SecaoProdutividade({ rawData, subPag, setSubPag, filtros }) {
                       </tbody>
                     </table>
                   </div>
-                  );
-                })()}
+                )}
               </div>
-            );
-          })}
-          {!filtered.length&&<div style={{background:"#fff",borderRadius:12,padding:"48px 0",
-            textAlign:"center",color:"#94A3B8",fontSize:14}}>Nenhum cliente encontrado.</div>}
-        </div>
-      </div>
-    );
-  }
-
-  // ── HISTÓRICO ─────────────────────────────────────────────────────────────────
-  // Histórico: uma linha por unidade (última revisão) com contagem de revisões
-  const filtHistorico = (() => {
-    const all = filterRows(data);
-    const by = {};
-    all.forEach(r => {
-      // Chave simples: grupo + unidade (uma linha por unidade)
-      const key = `${(r.grupoCliente||"").trim()}||${(r.unidade||"").trim()}`;
-      if (!by[key]) by[key] = { rows:[], last:null };
-      by[key].rows.push(r);
-      if (!by[key].last || r.nRev > by[key].last.nRev) by[key].last = r;
-    });
-    return Object.values(by)
-      .filter(x => x.last)
-      .map(({rows, last}) => ({
-        ...last,
-        totalRevisoes: rows.filter(r => r.nRev > 0).length,
-      }))
-      .sort((a,b) =>
-        (a.grupoCliente||"").localeCompare(b.grupoCliente||"") ||
-        (a.unidade||"").localeCompare(b.unidade||"")
-      );
-  })();
-  return (
-    <div>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
-        <span style={{fontSize:12,color:"#94A3B8"}}>{filtHistorico.length} registros</span>
-      </div>
-      <div style={{background:"#fff",borderRadius:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.07)"}}>
-        <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-            <thead>
-              <tr style={{background:"#F8FAFC"}}>
-                {["Mês","Sem.","Resp.","Escopo","Grupo","Unidade","Tipo","Rev.","Contrato Atual","Com Pleito","Ganho","% Reaj","% Aceito","Semáforo","Status","OBS"].map(h=>(
-                  <th key={h} style={{textAlign:"left",padding:"8px 10px",fontSize:10,
-                    color:"#94A3B8",fontWeight:600,whiteSpace:"nowrap",
-                    borderBottom:"1px solid #E2E8F0"}}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtHistorico.map((r,i)=>{
-                const isAprov=r.status.toUpperCase().includes("APROVADO");
-                const isRecus=r.status.toUpperCase().includes("RECUS");
-                const sc=isAprov?{t:"#16A34A",bg:"#DCFCE7"}:isRecus?{t:"#DC2626",bg:"#FEE2E2"}:{t:"#D97706",bg:"#FEF9C3"};
-                return(
-                  <tr key={i} style={{background:i%2===0?"#fff":"#F8FAFC",borderTop:"1px solid #F1F4F8"}}>
-                    <td style={{padding:"7px 10px",color:"#94A3B8",whiteSpace:"nowrap"}}>{r.mes}</td>
-                    <td style={{padding:"7px 10px",color:"#94A3B8",whiteSpace:"nowrap",fontSize:10}}>{r.semana}</td>
-                    <td style={{padding:"7px 10px",color:COLORS2[r.responsavel],fontWeight:600,
-                      whiteSpace:"nowrap",borderLeft:`3px solid ${COLORS2[r.responsavel]||"#E2E8F0"}`}}>
-                      {r.responsavel.charAt(0)+r.responsavel.slice(1).toLowerCase()}
-                    </td>
-                    <td style={{padding:"7px 10px",color:"#94A3B8",whiteSpace:"nowrap",fontSize:10}}>{r.escopo||"—"}</td>
-                    <td style={{padding:"7px 10px",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:DARK}}>{r.grupoCliente}</td>
-                    <td style={{padding:"7px 10px",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{r.unidade}</td>
-                    <td style={{padding:"7px 10px"}}><TagP label={r.tipo||r.categoria} color={CAT_COM_C[r.categoria]||"#6B7280"}/></td>
-                    <td style={{padding:"7px 10px",textAlign:"center",
-                      color:r.totalRevisoes>0?"#7C3AED":"#94A3B8",fontWeight:600}}>
-                      {r.totalRevisoes||0}
-                    </td>
-                    <td style={{padding:"7px 10px",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.valAtual>0?brl(r.valAtual):"—"}</td>
-                    <td style={{padding:"7px 10px",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.valPleito>0?brl(r.valPleito):"—"}</td>
-                    <td style={{padding:"7px 10px",color:"#16A34A",whiteSpace:"nowrap",fontVariantNumeric:"tabular-nums"}}>{r.diferenca>0?brl(r.diferenca):"—"}</td>
-                    <td style={{padding:"7px 10px",color:"#64748B",whiteSpace:"nowrap"}}>{r.pctReaj>0?fmtPct2(r.pctReaj):"—"}</td>
-                    <td style={{padding:"7px 10px",color:"#16A34A",whiteSpace:"nowrap"}}>{r.aprovPct>0?fmtPct2(r.aprovPct):"—"}</td>
-                    <td style={{padding:"7px 10px"}}>
-                      {r.sinalizacao&&(
-                        <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <div style={{width:7,height:7,borderRadius:99,background:SIN_C2[r.sinalizacao]}}/>
-                          <span style={{fontSize:10,color:SIN_C2[r.sinalizacao],fontWeight:500}}>{SIN_LB2[r.sinalizacao]}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td style={{padding:"7px 10px"}}>
-                      <span style={{fontSize:10,fontWeight:500,padding:"2px 7px",borderRadius:99,
-                        background:sc.bg,color:sc.t,whiteSpace:"nowrap"}}>{r.status}</span>
-                    </td>
-                    <td style={{padding:"7px 10px",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",
-                      whiteSpace:"nowrap",fontSize:10,color:"#94A3B8"}}
-                      title={r.obs}>{r.obs||"—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {!filtHistorico.length&&<div style={{textAlign:"center",padding:"40px 0",color:"#94A3B8",fontSize:14}}>
-            Nenhum registro encontrado.</div>}
-        </div>
-      </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
-}
+};
 
-// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
-export default function App() {
-  const [gData,   setGData]   = useState([]);
-  const [pData,   setPData]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [erro,    setErro]    = useState(null);
-  const [ultimaAt,setUltimaAt]= useState(null);
-  const [secao,   setSecao]   = useState("gerencial");
-  const [subPag,  setSubPag]  = useState("visao");
-  const [menuOpen,setMenuOpen]= useState(false);
+// ─── Seção Controle Econômico ─────────────────────────────────────────────────
+const SecaoEconomico = ({ dados, filtros }) => {
+  const { filtroGerente, filtroMes, filtroTipo } = filtros;
+  const [expandido, setExpandido] = useState({});
 
-  // Filtros de Produtividade — no menu lateral
-  const [pFResp, setPFResp] = useState("Todos");
-  const [pFStat, setPFStat] = useState("Todos");
-  const [pFMes,  setPFMes]  = useState("Todos");
-  const [pFSem,  setPFSem]  = useState("Todas");
-  const [pFEsc,  setPFEsc]  = useState("Todos");
-  const [pFSin,  setPFSin]  = useState("Todos");
-  const [pFTipo, setPFTipo] = useState("Todos");
+  const filtrado = useMemo(() => dados.filter(d => {
+    if (filtroMes.length && !filtroMes.includes(d.mes)) return false;
+    if (filtroGerente.length && !filtroGerente.includes(d.gerente)) return false;
+    if (filtroTipo && d.tipo !== filtroTipo) return false;
+    return num(d.valorAtual) > 0 || num(d.valorFinal) > 0;
+  }), [dados, filtroMes, filtroGerente, filtroTipo]);
 
-  const buscarDados = useCallback(async()=>{
-    setLoading(true);setErro(null);
-    try {
-      const [rawG,rawP] = await Promise.all([
-        fetchCSV("2073814116"),
-        fetchCSV("1622380363"),
-      ]);
-      setGData(processGerencial(rawG));
-      setPData(rawP); // raw rows — processed inside SecaoProdutividade
-      setUltimaAt(new Date());
-    } catch(e) { setErro(e.message); }
-    finally { setLoading(false); }
-  },[]);
+  const grupos = useMemo(() => {
+    const map = {};
+    filtrado.forEach(d => {
+      const g = d.grupoCliente || "Sem Grupo";
+      if (!map[g]) map[g] = [];
+      map[g].push(d);
+    });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtrado]);
 
-  useEffect(()=>{ buscarDados(); },[buscarDados]);
-
-  const navItems = [
-    { id:"gerencial",     label:"Gerencial",     subs:[] },
-    { id:"produtividade", label:"Produtividade",  subs:[
-      {id:"visao",    label:"Visão Geral"},
-      {id:"esforco",  label:"Esforço"},
-      {id:"clientes", label:"Por Cliente"},
-      {id:"historico",label:"Histórico"},
-    ]},
-  ];
-
-  const navTitle = secao==="gerencial"?"Gerencial"
-    : navItems.find(n=>n.id==="produtividade")?.subs.find(s=>s.id===subPag)?.label||"Produtividade";
+  const totalAtual = useMemo(() => filtrado.reduce((s, d) => s + num(d.valorAtual), 0), [filtrado]);
+  const totalFinal = useMemo(() => filtrado.reduce((s, d) => s + num(d.valorFinal), 0), [filtrado]);
+  const totalGanho = totalFinal - totalAtual;
+  const pctGlobal = totalAtual > 0 ? (totalGanho / totalAtual) * 100 : 0;
+  const ganhoEstimado = useMemo(() => filtrado
+    .filter(d => d.dataAprov && d.dataAprov.trim() !== "")
+    .reduce((s, d) => {
+      const vf = num(d.valorFinal);
+      const va = num(d.valorAtual);
+      return s + (vf && va ? vf - va : 0);
+    }, 0), [filtrado]);
 
   return (
-    <div style={{display:"flex",minHeight:"100vh",background:"#F1F4F8",
-                 fontFamily:"system-ui,-apple-system,sans-serif",color:DARK}}>
-
-      {/* Overlay quando menu aberto */}
-      {menuOpen&&(
-        <div onClick={()=>setMenuOpen(false)}
-             style={{position:"fixed",inset:0,zIndex:90,background:"rgba(0,0,0,.3)"}}/>
-      )}
-
-      {/* ── MENU LATERAL ────────────────────────────────────────────────────── */}
-      <div style={{
-        width: menuOpen?MENU_W_OPEN:MENU_W_CLOSE,
-        height:"100vh",background:MENU_BG,
-        display:"flex",flexDirection:"column",
-        position:"fixed",top:0,left:0,zIndex:100,
-        transition:"width .2s",overflow:"hidden",
-        boxShadow: menuOpen?"4px 0 20px rgba(0,0,0,.3)":"none",
-      }}>
-        {/* Logo + toggle */}
-        <div style={{padding:menuOpen?"18px 16px 14px":"14px 0",display:"flex",
-                     alignItems:"center",justifyContent:menuOpen?"space-between":"center",
-                     borderBottom:"1px solid rgba(255,255,255,.07)",minHeight:60}}>
-          {menuOpen&&(
-            <div style={{lineHeight:1}}>
-              <div style={{fontSize:9,fontWeight:400,color:"rgba(255,255,255,.35)",letterSpacing:".14em"}}>GRUPO</div>
-              <div style={{fontSize:24,fontWeight:800,color:"#fff",letterSpacing:"-.01em"}}>GPS</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        <KpiCard label="Valor Total dos Contratos" value={brlFmt(totalAtual)} color={C.azul} />
+        <KpiCard label="Valor Final / Pleito" value={brlFmt(totalFinal)} color={C.verde} />
+        <KpiCard label="Ganho Estimado (concluídos)" value={brlFmt(ganhoEstimado)} color={ganhoEstimado >= 0 ? C.verde : C.vermelho} />
+      </div>
+      {grupos.map(([grupo, rows]) => {
+        const gAtual = rows.reduce((s, d) => s + num(d.valorAtual), 0);
+        const gFinal = rows.reduce((s, d) => s + num(d.valorFinal), 0);
+        const concluidos = rows.filter(d => d.dataAprov && d.dataAprov.trim() !== "");
+        const gGanho = concluidos.reduce((s, d) => {
+          const vf = num(d.valorFinal); const va = num(d.valorAtual);
+          return s + (vf && va ? vf - va : 0);
+        }, 0);
+        const gPct = gAtual > 0 ? (gGanho / gAtual) * 100 : 0;
+        const aberto = expandido[grupo] !== false;
+        return (
+          <div key={grupo} style={{ background: C.bgCard, borderRadius: 10, border: `1px solid ${C.borda}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div onClick={() => setExpandido(p => ({ ...p, [grupo]: !aberto }))}
+              style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", borderBottom: aberto ? `1px solid ${C.borda}` : "none", userSelect: "none" }}>
+              <span style={{ color: C.cinzaClaro, fontSize: 10 }}>{aberto ? "▼" : "▶"}</span>
+              <span style={{ fontWeight: 700, color: C.cinzaEscuro, fontSize: 13, flex: 1 }}>{grupo}</span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20, textAlign: "right" }}>
+                {[
+                  { l: "Contrato Atual", v: brlFmt(gAtual), c: C.cinzaMedio },
+                  { l: "Valor Final", v: brlFmt(gFinal), c: C.verde },
+                  { l: "Ganho (concluídos)", v: concluidos.length ? brlFmt(gGanho) : "—", c: gGanho >= 0 ? C.verde : C.vermelho },
+                  { l: "Reajuste", v: `${gPct.toFixed(2).replace(".", ",")}%`, c: C.laranja },
+                ].map(({ l, v, c }) => (
+                  <div key={l}>
+                    <div style={{ fontSize: 10, color: C.cinzaClaro }}>{l}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: c }}>{v}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          )}
-          <button onClick={()=>setMenuOpen(o=>!o)} style={{
-            width:28,height:28,borderRadius:6,border:"none",
-            background:"rgba(255,255,255,.07)",color:"rgba(255,255,255,.5)",
-            cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-            fontSize:12,flexShrink:0,
-          }}>
-            {menuOpen?"◀":"▶"}
+            {aberto && (
+              <div style={{ overflowX: "auto", borderTop: `1px solid ${C.borda}` }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: "#f8fafc" }}>
+                      {["CR","Descrição","Mês","Gerente","Tipo","Contrato Atual","Valor Final","Ganho","Reajuste"].map(h => (
+                        <th key={h} style={{ padding: "7px 12px", textAlign: "left", color: C.cinzaClaro, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", borderBottom: `1px solid ${C.borda}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => {
+                      const vAtual = num(row.valorAtual);
+                      const vFinal = num(row.valorFinal);
+                      const ganho = vFinal && vAtual ? vFinal - vAtual : null;
+                      const pct = vAtual > 0 && vFinal > 0 ? ((vFinal - vAtual) / vAtual) * 100 : 0;
+                      return (
+                        <tr key={row.cr + i} style={{ borderBottom: `1px solid #f0f4f7`, background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+                          <td style={{ padding: "7px 12px", color: C.cinzaMedio, fontFamily: "monospace", fontSize: 11 }}>{row.cr}</td>
+                          <td style={{ padding: "7px 12px", color: C.cinzaEscuro, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.descri}</td>
+                          <td style={{ padding: "7px 12px", color: C.cinzaMedio }}>{row.mes}</td>
+                          <td style={{ padding: "7px 12px", color: C.cinzaEscuro, fontWeight: 500 }}>{row.gerente}</td>
+                          <td style={{ padding: "7px 12px" }}><Badge label={row.tipo || "—"} color={TIPO_COR[row.tipo] || C.cinzaMedio} bg={TIPO_BG[row.tipo] || C.azulClaro} /></td>
+                          <td style={{ padding: "7px 12px", color: C.cinzaMedio }}>{brlFmt(vAtual)}</td>
+                          <td style={{ padding: "7px 12px", color: C.verde, fontWeight: 600 }}>{vFinal ? brlFmt(vFinal) : "—"}</td>
+                          <td style={{ padding: "7px 12px", color: ganho !== null ? C.verde : C.cinzaClaro, fontWeight: 600 }}>{ganho !== null ? brlFmt(ganho) : "—"}</td>
+                          <td style={{ padding: "7px 12px", color: C.laranja, fontWeight: 700 }}>{vFinal && vAtual ? `${pct.toFixed(2).replace(".", ",")}%` : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {grupos.length === 0 && (
+        <div style={{ color: C.cinzaClaro, textAlign: "center", marginTop: 60, fontSize: 14 }}>Nenhum registro com valores preenchidos</div>
+      )}
+    </div>
+  );
+};
+
+// ─── App Principal ────────────────────────────────────────────────────────────
+export default function App() {
+  const [secao, setSecao] = useState("gerencial");
+  const [menuAberto, setMenuAberto] = useState(true);
+  const [filtrosAberto, setFiltrosAberto] = useState(false);
+  const filtrosRef = useRef(null);
+
+  const [dados, setDados] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const [filtros, setFiltros] = useState({
+    busca: "", filtroMes: [], filtroGerente: [], filtroStatus: [], filtroTipo: ""
+  });
+
+  const temFiltro = filtros.busca || filtros.filtroMes.length || filtros.filtroGerente.length || filtros.filtroStatus.length || filtros.filtroTipo;
+
+  const carregarDados = useCallback(async () => {
+    setLoading(true); setErro(null);
+    try {
+      const values = await fetchSheet(GID_GERENCIAL);
+      setDados(parseGerencial(values));
+      setLastUpdate(new Date());
+    } catch (e) { setErro(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { carregarDados(); }, [carregarDados]);
+
+  // Fechar filtros ao clicar fora
+  useEffect(() => {
+    const handler = (e) => {
+      if (filtrosRef.current && !filtrosRef.current.contains(e.target)) setFiltrosAberto(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const gerentes = useMemo(() => [...new Set(dados.map(d => d.gerente).filter(Boolean))].sort(), [dados]);
+  const meses = useMemo(() => [...new Set(dados.map(d => d.mes).filter(Boolean))].sort((a, b) => mesNum(a) - mesNum(b)), [dados]);
+
+  const onUpdate = useCallback((cr, campo, valor) => {
+    setDados(prev => prev.map(d => {
+      if (d.cr !== cr) return d;
+      const campoMap = { "Tipo de Negócio": "tipo", "Status Real": "status", "Devido (%)": "devido", "Aplicado (%)": "aplicado", "Observações": "obs" };
+      const key = campoMap[campo];
+      return key ? { ...d, [key]: valor } : d;
+    }));
+  }, []);
+
+  const limparFiltros = () => setFiltros({ busca: "", filtroMes: [], filtroGerente: [], filtroStatus: [], filtroTipo: "" });
+
+  const SECOES = [
+    { id: "gerencial", label: "Gestão de Reajuste",  icon: "📋" },
+    { id: "economico", label: "Controle Econômico",  icon: "📈" },
+    { id: "clientes",  label: "Visão do Cliente",    icon: "◉" },
+    { id: "vencimentos", label: "Vencimentos Contratuais", icon: "📅" },
+    { id: "matriz",    label: "Matriz de Reajuste",  icon: null, svgIcon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="9" y1="9" x2="9.01" y2="9"/>
+        <polyline points="7.5 9 8.5 10 10 8.5"/>
+        <line x1="12" y1="9" x2="15" y2="9"/>
+        <polyline points="7.5 12.5 8.5 13.5 10 12"/>
+        <line x1="12" y1="12.5" x2="14" y2="12.5"/>
+        <circle cx="18.5" cy="18.5" r="2.5"/>
+        <path d="M18.5 15v1M18.5 21v1M15 18.5h1M21 18.5h1M16.1 16.1l.7.7M20.2 20.2l.7.7M16.1 20.9l.7-.7M20.2 16.8l.7-.7"/>
+      </svg>
+    )},
+  ];
+  const TITULO_HEADER = {
+    "gerencial": "Gestão de Reajustes Contratuais",
+    "economico": "Controle Econômico",
+    "clientes":  "Visão do Cliente",
+    "matriz":    "Matriz de Reajuste",
+    "vencimentos": "Vencimentos Contratuais",
+  };
+  const secaoAtual = SECOES.find(s => s.id === secao);
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "#f5f8fa", fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", overflow: "hidden" }}>
+
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
+      <div style={{
+        width: menuAberto ? 248 : 52, flexShrink: 0, background: C.azul,
+        display: "flex", flexDirection: "column",
+        transition: "width 0.2s cubic-bezier(.4,0,.2,1)", overflow: "hidden"
+      }}>
+        {/* Logo + pin */}
+        <div style={{
+          position: "relative",
+          padding: "16px 12px",
+          borderBottom: `1px solid ${C.borda}`,
+          background: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          minHeight: 64
+        }}>
+          {menuAberto && <LogoInHaus />}
+          <button
+            onClick={() => setMenuAberto(v => !v)}
+            title={menuAberto ? "Recolher" : "Expandir"}
+            style={{
+              position: menuAberto ? "absolute" : "static",
+              right: menuAberto ? 10 : undefined,
+              background: C.azulClaro, border: `1px solid ${C.borda}`,
+              borderRadius: 6, color: C.azul, cursor: "pointer",
+              width: 28, height: 28, flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, transition: "background 0.15s"
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = C.azulClaro}
+            onMouseLeave={e => e.currentTarget.style.background = C.azulClaro}
+          >
+            📌
           </button>
         </div>
 
         {/* Nav */}
-        <nav style={{padding:"8px 0"}}>
-          {navItems.map(({id,label,subs})=>(
-            <div key={id}>
-              <div onClick={()=>{setSecao(id);setSubPag(subs[0]?.id||"visao");setMenuOpen(true);}}
-                   style={{
-                     padding:menuOpen?"9px 16px":"9px 0",
-                     display:"flex",alignItems:"center",gap:8,cursor:"pointer",
-                     justifyContent:menuOpen?"flex-start":"center",
-                     background:secao===id?"rgba(255,255,255,.07)":"transparent",
-                     borderLeft:secao===id?"3px solid #60A5FA":"3px solid transparent",
-                     transition:"all .15s",
-                   }}>
-                {!menuOpen&&(
-                  <span style={{fontSize:11,fontWeight:700,width:MENU_W_CLOSE,textAlign:"center",
-                    color:secao===id?"#60A5FA":"rgba(255,255,255,.4)"}}>
-                    {label.charAt(0)}
-                  </span>
-                )}
-                {menuOpen&&(
-                  <span style={{fontSize:13,fontWeight:600,
-                    color:secao===id?"#fff":"rgba(255,255,255,.55)"}}>
-                    {label}
-                  </span>
-                )}
-              </div>
-              {menuOpen&&secao===id&&subs.length>0&&subs.map(sub=>(
-                <div key={sub.id} onClick={()=>setSubPag(sub.id)}
-                     style={{padding:"6px 16px 6px 28px",cursor:"pointer",fontSize:12,
-                       color:subPag===sub.id?"#60A5FA":"rgba(255,255,255,.4)",
-                       fontWeight:subPag===sub.id?600:400,
-                       background:subPag===sub.id?"rgba(96,165,250,.07)":"transparent",
-                       transition:"all .15s",
-                     }}>
-                  {sub.label}
-                </div>
-              ))}
-            </div>
+        <nav style={{ padding: "10px 6px" }}>
+          {SECOES.map(({ id, label, icon, svgIcon }) => (
+            <button key={id} onClick={() => setSecao(id)} title={!menuAberto ? label : undefined} style={{
+              display: "flex", alignItems: "center",
+              gap: menuAberto ? 10 : 0,
+              justifyContent: menuAberto ? "flex-start" : "center",
+              padding: menuAberto ? "10px 12px" : "10px 0",
+              borderRadius: 7, width: "100%", marginBottom: 2,
+              background: secao === id
+                ? "linear-gradient(180deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.32) 100%)"
+                : "transparent",
+              boxShadow: secao === id
+                ? "inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -2px 0 rgba(0,0,0,0.35), 0 3px 8px rgba(0,0,0,0.28)"
+                : "none",
+              border: secao === id ? "1px solid rgba(0,0,0,0.25)" : "1px solid transparent",
+              color: secao === id ? "#fff" : "rgba(255,255,255,0.6)",
+              cursor: "pointer", fontSize: 13, fontWeight: secao === id ? 600 : 300,
+              fontFamily: SERIF, letterSpacing: "0.03em",
+              transition: "all 0.15s", whiteSpace: "nowrap", overflow: "hidden",
+              borderLeft: menuAberto ? (secao === id ? "3px solid rgba(255,255,255,0.7)" : "3px solid transparent") : "none",
+            }}>
+              <span style={{ fontSize: 13, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{svgIcon || icon}</span>
+              {menuAberto && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
+            </button>
           ))}
         </nav>
 
+        <div style={{ flex: 1 }} />
 
-
-        {/* Filtros Produtividade no menu */}
-        {menuOpen&&secao==="produtividade"&&pData.length>0&&(()=>{
-          const procData = processProdFull(pData);
-          const mesesDisp  = ORDEM_MES.filter(m=>procData.some(r=>r.mes&&m.toUpperCase().startsWith(r.mes.toUpperCase().substring(0,3))));
-          const semanasDisp= [...new Set(procData.map(r=>r.semana).filter(Boolean))].sort();
-          const escoposDisp= [...new Set(procData.map(r=>r.escopo).filter(Boolean))].sort();
-          const tiposDisp  = [...new Set(procData.map(r=>r.tipo).filter(Boolean))].sort();
-
-          const BtnF = ({label,active,color,onClick}) => (
-            <button onClick={onClick} style={{
-              padding:"3px 9px",borderRadius:99,border:"none",cursor:"pointer",
-              fontFamily:"inherit",fontSize:11,fontWeight:500,transition:"all .15s",
-              background:active?(color||"#60A5FA"):"rgba(255,255,255,.08)",
-              color:active?"#fff":"rgba(255,255,255,.5)",whiteSpace:"nowrap",
-              marginBottom:3,
-            }}>{label}</button>
-          );
-
-          const Sec = ({label,children}) => (
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.3)",
-                           textTransform:"uppercase",letterSpacing:".1em",marginBottom:6}}>{label}</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:3}}>{children}</div>
-            </div>
-          );
-
-          return (
-            <div style={{overflowY:"auto",padding:"14px 12px",
-                         borderTop:"1px solid rgba(255,255,255,.07)",
-                         flex:1, minHeight:0}}>
-              <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.25)",
-                           textTransform:"uppercase",letterSpacing:".1em",marginBottom:14}}>
-                Filtros
-              </div>
-
-              <Sec label="Responsável">
-                {["Todos","Mariana","Wilder","Giovanni","Carla","Darlan"].map(p=>(
-                  <BtnF key={p} label={p} active={pFResp===p}
-                    color={COR_P[p]||"#60A5FA"} onClick={()=>setPFResp(p)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Status">
-                {["Todos","Aprovado","Em Negociação","Recusado"].map(s=>(
-                  <BtnF key={s} label={s} active={pFStat===s} onClick={()=>setPFStat(s)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Mês">
-                {["Todos",...mesesDisp].map(m=>(
-                  <BtnF key={m} label={m} active={pFMes===m} onClick={()=>setPFMes(m)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Semana">
-                {["Todas",...semanasDisp].map(s=>(
-                  <BtnF key={s} label={s} active={pFSem===s} onClick={()=>setPFSem(s)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Escopo">
-                {["Todos",...escoposDisp].map(e=>(
-                  <BtnF key={e} label={e} active={pFEsc===e} onClick={()=>setPFEsc(e)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Semáforo">
-                {[
-                  {v:"Todos",l:"Todos"},
-                  {v:"verde",l:"Boa Negociação",c:"#16A34A"},
-                  {v:"amarelo",l:"Moderada",c:"#D97706"},
-                  {v:"vermelho",l:"Difícil",c:"#DC2626"},
-                ].map(({v,l,c})=>(
-                  <BtnF key={v} label={l} active={pFSin===v} color={c} onClick={()=>setPFSin(v)}/>
-                ))}
-              </Sec>
-
-              <Sec label="Tipo de Negócio">
-                {["Todos",...tiposDisp].map(t=>(
-                  <BtnF key={t} label={t} active={pFTipo===t} onClick={()=>setPFTipo(t)}/>
-                ))}
-              </Sec>
-
-              <button onClick={()=>{setPFResp("Todos");setPFStat("Todos");setPFMes("Todos");
-                setPFSem("Todas");setPFEsc("Todos");setPFSin("Todos");setPFTipo("Todos");}}
-                style={{width:"100%",padding:"6px",borderRadius:8,border:"1px solid rgba(255,255,255,.15)",
-                        background:"transparent",color:"rgba(255,255,255,.4)",fontSize:11,
-                        cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
-                Limpar filtros
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* Última atualização */}
-        {menuOpen&&ultimaAt&&(
-          <div style={{padding:"10px 16px",borderTop:"1px solid rgba(255,255,255,.06)",
-                       fontSize:10,color:"rgba(255,255,255,.25)"}}>
-            Atualizado às {ultimaAt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
-          </div>
-        )}
-      </div>
-
-      {/* ── CONTEÚDO ────────────────────────────────────────────────────────── */}
-      <div style={{flex:1,marginLeft:MENU_W_CLOSE,display:"flex",flexDirection:"column",
-                   minWidth:0,transition:"margin-left .2s"}}>
-        {/* Header */}
-        <div style={{background:DARK,padding:"0 24px",display:"flex",alignItems:"center",
-                     justifyContent:"space-between",minHeight:54,gap:12,flexShrink:0}}>
-          <div>
-            <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{navTitle}</div>
-            <div style={{fontSize:10,color:"rgba(255,255,255,.35)"}}>Grupo GPS · Controle Comercial</div>
-          </div>
-          <button onClick={buscarDados} disabled={loading} style={{
-            padding:"6px 14px",borderRadius:8,background:"rgba(255,255,255,.1)",
-            border:"1px solid rgba(255,255,255,.15)",color:"#fff",fontSize:11,
-            fontWeight:600,cursor:loading?"not-allowed":"pointer",
-            display:"flex",alignItems:"center",gap:5,opacity:loading?.7:1,flexShrink:0,
+        {/* Rodapé */}
+        <div style={{ padding: menuAberto ? "10px 12px" : "10px 6px", borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+          <button onClick={carregarDados} title="Atualizar dados" style={{
+            display: "flex", alignItems: "center", justifyContent: menuAberto ? "flex-start" : "center",
+            gap: 8, padding: menuAberto ? "7px 12px" : "7px 0",
+            borderRadius: 6, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.18)",
+            color: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 300, fontFamily: SERIF, letterSpacing: "0.03em", width: "100%"
           }}>
-            {loading?"⏳":"⟳"} {loading?"Atualizando...":"Atualizar"}
+            <span>↻</span>{menuAberto && <span>Atualizar dados</span>}
           </button>
-        </div>
-
-        {/* Conteúdo */}
-        <div style={{flex:1,padding:"20px 24px",overflowY:"auto",overflowX:"hidden"}}>
-          {loading&&(
-            <div style={{background:"#fff",borderRadius:14,padding:"80px 0",textAlign:"center",
-                         boxShadow:"0 1px 4px rgba(0,0,0,.07)"}}>
-              <div style={{fontSize:32,marginBottom:12}}>⏳</div>
-              <div style={{fontSize:15,fontWeight:600,color:DARK,marginBottom:6}}>Carregando dados...</div>
-              <div style={{fontSize:13,color:"#94A3B8"}}>Buscando planilha do Google Sheets</div>
+          {menuAberto && (
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 6, textAlign: "center", lineHeight: 1.5 }}>
+              {lastUpdate ? (
+                <>Última atualização: {lastUpdate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · {dados.length} registros</>
+              ) : (
+                <span style={{ color: "rgba(255,255,255,0.25)" }}>Aguardando dados…</span>
+              )}
             </div>
           )}
-          {erro&&!loading&&(
-            <div style={{background:"#FEF2F2",borderRadius:14,padding:"40px",
-                         textAlign:"center",border:"1px solid #FECACA"}}>
-              <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
-              <div style={{fontSize:15,fontWeight:600,color:"#DC2626",marginBottom:8}}>
-                Não foi possível carregar os dados
-              </div>
-              <div style={{fontSize:13,color:"#EF4444",marginBottom:20}}>{erro}</div>
-              <button onClick={buscarDados} style={{padding:"10px 24px",borderRadius:8,
-                background:"#DC2626",border:"none",color:"#fff",fontSize:13,
-                fontWeight:600,cursor:"pointer"}}>Tentar novamente</button>
+          {menuAberto && (
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.1)", textAlign: "center" }}>
+              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.28)" }}>desenvolvido por </span>
+              <span style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", fontWeight: 600 }}>Mariana Oliveira</span>
             </div>
-          )}
-          {!loading&&!erro&&secao==="gerencial"&&(
-            <SecaoGerencial data={gData} setData={setGData}/>
-          )}
-          {!loading&&!erro&&secao==="produtividade"&&(
-            <SecaoProdutividade rawData={pData} subPag={subPag} setSubPag={setSubPag}
-              filtros={{fResp:pFResp,fStat:pFStat,fMes:pFMes,fSem:pFSem,fEsc:pFEsc,fSin:pFSin,fTipo:pFTipo}}/>
           )}
         </div>
       </div>
+
+      {/* ── Área principal ────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+
+        {/* Header */}
+        <div style={{
+          padding: "0 24px", height: 56, flexShrink: 0,
+          borderBottom: `1px solid ${C.borda}`,
+          display: "flex", alignItems: "center", gap: 16,
+          background: C.azul
+        }}>
+          {/* Título centralizado */}
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 600, color: "#fff", flex: 1, textAlign: "center", letterSpacing: "0.01em", fontFamily: "'Palatino Linotype', 'Palatino', 'Book Antiqua', serif" }}>
+            {TITULO_HEADER[secao]}
+          </h1>
+
+          {/* Ações direita */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            {loading && <span style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>⏳ Carregando…</span>}
+            {erro && <span style={{ fontSize: 12, color: "#ffb3b3" }}>⚠ {erro}</span>}
+
+            {/* Botão filtros */}
+            <div ref={filtrosRef} style={{ position: "relative" }}>
+              <button
+                onClick={() => setFiltrosAberto(v => !v)}
+                title="Filtros"
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "6px 12px", borderRadius: 7, cursor: "pointer",
+                  background: filtrosAberto ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.14)",
+                  border: `1px solid ${temFiltro ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.25)"}`,
+                  color: "#fff", fontSize: 12, fontWeight: 300, fontFamily: SERIF, letterSpacing: "0.04em", transition: "all 0.15s"
+                }}
+              >
+                {/* Ícone parâmetros (sliders) */}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <line x1="1" y1="3" x2="13" y2="3" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="4" cy="3" r="1.5" fill="white"/>
+                  <line x1="1" y1="7" x2="13" y2="7" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="9" cy="7" r="1.5" fill="white"/>
+                  <line x1="1" y1="11" x2="13" y2="11" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="5" cy="11" r="1.5" fill="white"/>
+                </svg>
+                <span>Filtros</span>
+                {temFiltro && (
+                  <span style={{
+                    background: "#fff", color: C.azul, borderRadius: "50%",
+                    width: 16, height: 16, fontSize: 10, fontWeight: 800,
+                    display: "flex", alignItems: "center", justifyContent: "center"
+                  }}>
+                    {[filtros.filtroMes.length, filtros.filtroGerente.length, filtros.filtroStatus.length, filtros.filtroTipo ? 1 : 0, filtros.busca ? 1 : 0].reduce((a, b) => a + b, 0)}
+                  </span>
+                )}
+              </button>
+
+              {/* Popover filtros */}
+              {filtrosAberto && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 1000,
+                  background: "#fff", borderRadius: 12, width: 380,
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.14)", border: `1px solid ${C.borda}`,
+                  padding: "16px 18px", maxHeight: "80vh", overflowY: "auto"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: C.cinzaEscuro }}>Filtros</span>
+                    <button onClick={() => setFiltrosAberto(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.cinzaClaro, fontSize: 16 }}>×</button>
+                  </div>
+                  <FiltrosPopover
+                    filtros={filtros} setFiltros={setFiltros}
+                    meses={meses} gerentes={gerentes}
+                    onLimpar={() => { limparFiltros(); setFiltrosAberto(false); }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Corpo — scroll aqui */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          {loading ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: C.cinzaClaro, gap: 10 }}>
+              <span style={{ fontSize: 20 }}>⏳</span> Carregando dados da planilha…
+            </div>
+          ) : erro ? (
+            <div style={{ textAlign: "center", marginTop: 60 }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>⚠</div>
+              <div style={{ color: C.vermelho, marginBottom: 12 }}>{erro}</div>
+              <button onClick={carregarDados} style={{ padding: "8px 20px", borderRadius: 6, border: `1px solid ${C.azul}`, background: C.azulClaro, color: C.azul, cursor: "pointer", fontWeight: 600 }}>Tentar novamente</button>
+            </div>
+          ) : secao === "gerencial" ? (
+            <SecaoGerencial dados={dados} onUpdate={onUpdate} setToast={setToast} filtros={filtros} />
+          ) : secao === "economico" ? (
+            <SecaoEconomico dados={dados} filtros={filtros} />
+          ) : secao === "clientes" ? (
+            <SecaoClientes dados={dados} onUpdate={onUpdate} setToast={setToast} />
+          ) : secao === "vencimentos" ? (
+            <SecaoVencimentos dados={dados} />
+          ) : (
+            <SecaoMatriz dados={dados} />
+          )}
+        </div>
+      </div>
+
+      {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
